@@ -46,6 +46,13 @@ AVAILABLE_VOICES = {
     "svetlana": "ru-RU-SvetlanaNeural",
 }
 TTS_RATE = "+0%"
+AVAILABLE_SPEEDS = {
+    "slow": "-30%",
+    "normal": "+0%",
+    "fast": "+25%",
+    "faster": "+50%",
+    "fastest": "+80%",
+}
 
 # Scraping
 MAX_CONCURRENT_FETCHES = 6

@@ -11,6 +11,7 @@ from telegram.ext import (
 from spot_bot.config import (
     BOT_TOKEN,
     AVAILABLE_VOICES,
+    AVAILABLE_SPEEDS,
     DEFAULT_SCRAPE_COUNT,
     MAX_SCRAPE_COUNT,
     MAX_OFFSET,
@@ -49,6 +50,10 @@ def _get_voice():
     return get_setting("voice")
 
 
+def _get_speed():
+    return get_setting("speed")
+
+
 # ---------------------------------------------------------------------------
 # /start
 # ---------------------------------------------------------------------------
@@ -73,6 +78,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Settings:\n"
         "/voice dmitry — Switch to male voice\n"
         "/voice svetlana — Switch to female voice\n"
+        "/speed fast — Change audio speed (slow/normal/fast/faster/fastest)\n"
         "/channel — Show/change source channel\n"
         "/status — Show current settings"
     )
@@ -137,6 +143,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             combined_audio = True
 
     voice = _get_voice()
+    rate = _get_speed()
     use_range = start_offset is not None and end_offset is not None
 
     # Build description for status message
@@ -172,6 +179,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             send_as_file=send_as_file,
             combined_audio=combined_audio,
             voice=voice,
+            rate=rate,
         )
     )
 
@@ -181,7 +189,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                    use_range, count, start_offset, end_offset,
                    include_audio, include_images, send_as_file,
-                   combined_audio, voice):
+                   combined_audio, voice, rate=TTS_RATE):
     """Background task that runs the full pipeline + delivery."""
     result = None
     combined_path = None
@@ -198,7 +206,7 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             include_audio=include_audio,
             include_images=include_images,
             voice=voice,
-            rate=TTS_RATE,
+            rate=rate,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
         )
@@ -241,7 +249,7 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                 tmpdir = tempfile.mkdtemp(prefix="spot_combined_")
                 combined_path = os.path.join(tmpdir, "combined.mp3")
                 combined_path = await combine_audio_with_announcements(
-                    result.audio_results, combined_path, voice, TTS_RATE
+                    result.audio_results, combined_path, voice, rate
                 )
                 if combined_path:
                     await status_msg.edit_text("Sending combined audio...")
@@ -342,6 +350,45 @@ async def cmd_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# /speed
+# ---------------------------------------------------------------------------
+
+async def cmd_speed(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+
+    if not args:
+        current = _get_speed()
+        names = ", ".join(AVAILABLE_SPEEDS.keys())
+        await update.message.reply_text(
+            f"Current speed: {current}\n"
+            f"Presets: {names}\n"
+            f"Custom: /speed +30% or /speed -20%\n"
+            f"Usage: /speed fast"
+        )
+        return
+
+    name = args[0].lower()
+
+    # Check presets first
+    if name in AVAILABLE_SPEEDS:
+        rate = AVAILABLE_SPEEDS[name]
+    elif re.match(r'^[+-]\d+%$', name):
+        # Custom value like +30% or -20%
+        rate = name
+    else:
+        names = ", ".join(AVAILABLE_SPEEDS.keys())
+        await update.message.reply_text(
+            f"Unknown speed '{name}'.\n"
+            f"Presets: {names}\n"
+            f"Or use custom: +30%, -20%, etc."
+        )
+        return
+
+    set_setting("speed", rate)
+    await update.message.reply_text(f"Speed set to: {rate}")
+
+
+# ---------------------------------------------------------------------------
 # /channel
 # ---------------------------------------------------------------------------
 
@@ -392,9 +439,12 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         auto_info = "Off"
 
+    speed = _get_speed()
+
     await update.message.reply_text(
         f"Channel: {channel}\n"
         f"Voice: {voice}\n"
+        f"Speed: {speed}\n"
         f"Auto-scrape: {auto_info}\n"
         f"Active job: {'Yes' if has_job else 'No'}\n"
         f"Default count: {DEFAULT_SCRAPE_COUNT}\n"
@@ -596,6 +646,7 @@ def create_app():
     app.add_handler(CommandHandler("scrape", cmd_scrape))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("voice", cmd_voice))
+    app.add_handler(CommandHandler("speed", cmd_speed))
     app.add_handler(CommandHandler("channel", cmd_channel))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("auto", cmd_auto))
