@@ -1,0 +1,10 @@
+.claude/
+.env
+.git/
+__pycache__/
+*.pyc
+*.txt
+*.pdf
+*.html
+*.mp3
+spot_bot/user_settings.json

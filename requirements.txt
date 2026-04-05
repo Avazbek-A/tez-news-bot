@@ -1,0 +1,6 @@
+playwright
+beautifulsoup4
+lxml
+python-telegram-bot[job-queue]>=20.0
+edge-tts
+python-dotenv

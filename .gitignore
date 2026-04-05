@@ -1,0 +1,8 @@
+.env
+__pycache__/
+*.pyc
+*.mp3
+spot_bot/user_settings.json
+.claude/
+Spot_News_*
+tez_news_bot_logo.png

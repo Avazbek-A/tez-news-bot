@@ -1,0 +1,137 @@
+import re
+
+
+# Patterns for lines that are pure noise
+_DIGIT_LINE = re.compile(r"^\d[\s\d]*$")
+_HASHTAG_LINE = re.compile(r"^#\S")
+_URL_PATTERN = re.compile(r"https?://\S+")
+
+# Social-media / promotional footer markers
+_FOOTER_MARKERS = {
+    "Сайт:", "Instagram:", "Telegram:", "Facebook:", "YouTube:",
+    "Телефон:", "Тел:", "Email:", "E-mail:",
+}
+_FOOTER_PREFIX = re.compile(
+    r"^(Сайт|Instagram|Telegram|Facebook|YouTube|Телефон|Тел|Email|E-mail)\s*:",
+    re.IGNORECASE,
+)
+
+# Cross-reference patterns (references to other Spot articles)
+_CROSS_REF = re.compile(
+    r"Ранее\s+Spot\s+(писал|сообщал|рассказывал|информировал)",
+    re.IGNORECASE,
+)
+
+# "Advertising" / promo markers
+_PROMO_PATTERNS = [
+    re.compile(r"^реклама$", re.IGNORECASE),
+    re.compile(r"^Реклама на Spot", re.IGNORECASE),
+    re.compile(r"^На правах рекламы", re.IGNORECASE),
+    re.compile(r"^Партнерский материал", re.IGNORECASE),
+]
+
+# Sentence-ending punctuation (for paragraph break heuristics)
+_SENTENCE_ENDERS = frozenset(".!?")
+
+
+def clean_article(text):
+    """Clean a single article's text for reading and TTS consumption.
+
+    Removes noise, promotional footers, cross-references, URLs, and
+    normalizes paragraph structure for smooth reading flow.
+    """
+    if not text:
+        return ""
+
+    paragraphs = text.split("\n\n")
+    cleaned = []
+
+    for para in paragraphs:
+        para = _clean_paragraph(para)
+        if para:
+            cleaned.append(para)
+
+    # Remove trailing footer block (social links often cluster at the end)
+    while cleaned and _is_footer_line(cleaned[-1]):
+        cleaned.pop()
+
+    return "\n\n".join(cleaned)
+
+
+def _clean_paragraph(text):
+    """Clean a single paragraph. Returns empty string if it should be removed."""
+    text = text.strip()
+    if not text:
+        return ""
+
+    # Remove pure digit lines (view counts like "1 786")
+    if _DIGIT_LINE.match(text):
+        return ""
+
+    # Remove hashtag lines
+    if _HASHTAG_LINE.match(text):
+        return ""
+
+    # Remove "Comments" markers
+    if text == "Комментарии" or text.startswith("Комментарии:"):
+        return ""
+
+    # Remove "Also read" lines
+    if "Читайте также" in text or "Also read" in text:
+        return ""
+
+    # Remove cross-references to other Spot articles
+    if _CROSS_REF.search(text):
+        return ""
+
+    # Remove promo markers
+    for pattern in _PROMO_PATTERNS:
+        if pattern.match(text):
+            return ""
+
+    # Remove footer-style lines
+    if _is_footer_line(text):
+        return ""
+
+    # Strip URLs (they sound terrible when read aloud)
+    text = _URL_PATTERN.sub("", text)
+
+    # Normalize whitespace after URL removal
+    text = re.sub(r"  +", " ", text).strip()
+
+    # Normalize dashes for consistent TTS pausing
+    text = text.replace("—", " — ")
+    text = text.replace("–", " — ")
+    text = re.sub(r"\s+—\s+", " — ", text)
+
+    # Remove orphaned punctuation that might remain
+    if text in {".", ",", ";", ":", "-", "—"}:
+        return ""
+
+    # If after all cleaning, nothing meaningful remains
+    if len(text) < 3:
+        return ""
+
+    return text
+
+
+def _is_footer_line(text):
+    """Check if a line looks like a promotional/social footer."""
+    text = text.strip()
+    if _FOOTER_PREFIX.match(text):
+        return True
+    # Pure URL line
+    if _URL_PATTERN.match(text) and len(text.split()) <= 3:
+        return True
+    return False
+
+
+def clean_batch(articles):
+    """Clean a list of article dicts in place. Each dict should have 'body' key.
+
+    Returns the same list with cleaned body text.
+    """
+    for article in articles:
+        if article.get("body"):
+            article["body"] = clean_article(article["body"])
+    return articles
