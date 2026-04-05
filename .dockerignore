@@ -3,7 +3,8 @@
 .git/
 __pycache__/
 *.pyc
-*.txt
+Spot_News_*.txt
+!requirements.txt
 *.pdf
 *.html
 *.mp3
