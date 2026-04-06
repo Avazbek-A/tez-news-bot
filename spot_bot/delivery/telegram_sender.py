@@ -17,6 +17,12 @@ async def send_articles_as_text(bot: Bot, chat_id: int, articles: list):
         body = article.get("body", "")
         date = article.get("date", "")
 
+        # Post ID
+        post_id = ""
+        raw_id = article.get("id", "")
+        if "/" in raw_id:
+            post_id = raw_id.split("/")[-1]
+
         # Format the message
         header = ""
         if title:
@@ -26,7 +32,11 @@ async def send_articles_as_text(bot: Bot, chat_id: int, articles: list):
         if header:
             header += "\n"
 
-        full_text = header + _escape_html(body)
+        footer = ""
+        if post_id:
+            footer = f"\n\n<i>#{post_id}</i>"
+
+        full_text = header + _escape_html(body) + footer
 
         # Split and send
         chunks = _split_message(full_text, TELEGRAM_MESSAGE_LIMIT)
@@ -52,6 +62,12 @@ async def send_articles_as_file(bot: Bot, chat_id: int, articles: list,
         body = article.get("body", "")
         date = article.get("date", "")
 
+        # Post ID
+        post_id = ""
+        raw_id = article.get("id", "")
+        if "/" in raw_id:
+            post_id = raw_id.split("/")[-1]
+
         if title:
             lines.append(title)
         if date:
@@ -60,6 +76,8 @@ async def send_articles_as_file(bot: Bot, chat_id: int, articles: list,
             lines.append("")
         if body:
             lines.append(body)
+        if post_id:
+            lines.append(f"\n#{post_id}")
         lines.append("")
         lines.append("-" * 60)
         lines.append("")
