@@ -323,3 +323,98 @@ async def scrape_range(start_offset, end_offset, channel_url=CHANNEL_URL,
     # Sort newest first within range
     captured_posts.sort(key=lambda x: x["date"], reverse=True)
     return captured_posts[:needed]
+
+
+async def scrape_by_post_ids(start_id, end_id, channel_url=CHANNEL_URL,
+                             cancel_event=None, progress_callback=None):
+    """Scrape posts by actual Telegram post IDs (permanent, never change).
+
+    Unlike scrape_range() which uses offsets from latest, this uses
+    absolute post IDs. Post #35808 is always post #35808 regardless
+    of how many new posts are published.
+
+    Args:
+        start_id: Newer post ID (larger number, e.g., 35808).
+        end_id: Older post ID (smaller number, e.g., 35758).
+        channel_url: Public Telegram channel URL.
+        cancel_event: asyncio.Event to signal cancellation.
+        progress_callback: Optional async callable(str) for status updates.
+
+    Returns:
+        List of post dicts, ordered newest-first.
+    """
+    async def _report(msg):
+        if progress_callback:
+            await progress_callback(msg)
+
+    needed = start_id - end_id
+    captured_posts = []
+    processed_ids = set()
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        try:
+            context = await browser.new_context()
+            page = await context.new_page()
+
+            # Jump directly — no need to find latest post ID
+            jump_url = f"{channel_url}?before={start_id + 1}"
+            await _report(f"Jumping to post #{start_id}...")
+            await page.goto(jump_url)
+
+            try:
+                await page.wait_for_selector(
+                    ".tgme_widget_message", state="visible", timeout=10000
+                )
+            except Exception:
+                await _report("No posts found at this ID.")
+                return []
+
+            stall_count = 0
+
+            while len(captured_posts) < needed:
+                if cancel_event and cancel_event.is_set():
+                    break
+
+                batch = await _extract_posts_from_page(page, processed_ids)
+                added_this_round = 0
+
+                for post_data, numeric_id in batch:
+                    if numeric_id is None:
+                        continue
+                    # Only include posts within the requested ID range
+                    if numeric_id >= end_id and numeric_id <= start_id:
+                        captured_posts.append(post_data)
+                        added_this_round += 1
+                        if len(captured_posts) >= needed:
+                            break
+
+                if len(captured_posts) >= needed:
+                    break
+
+                await _report(
+                    f"Collected {len(captured_posts)}/{needed} posts "
+                    f"(#{start_id} to #{end_id})..."
+                )
+
+                # Scroll up to load older messages
+                await page.evaluate("window.scrollTo(0, 0)")
+                await page.wait_for_timeout(2000)
+
+                if added_this_round == 0:
+                    stall_count += 1
+                    if stall_count >= 3:
+                        await _report(
+                            f"Got {len(captured_posts)}/{needed} posts."
+                        )
+                        break
+                    await page.evaluate("window.scrollTo(0, -500)")
+                    await page.wait_for_timeout(2000)
+                else:
+                    stall_count = 0
+        finally:
+            await browser.close()
+
+    # Sort newest first
+    captured_posts.sort(key=lambda x: x["date"], reverse=True)
+    return captured_posts[:needed]

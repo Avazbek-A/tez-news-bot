@@ -66,7 +66,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/scrape 50 inline — Latest 50 as individual messages\n"
         "/scrape 50 audio — .txt + individual MP3s\n"
         "/scrape 50 audio combined — .txt + one combined MP3\n"
-        "/scrape 2000-1950 — Posts #2000 to #1950 from latest\n"
+        "/scrape 35808-35758 — Posts by ID (stable, never shifts)\n"
+        "/scrape 2000-1950 — Posts by offset from latest\n"
         "/scrape 50 images — .txt + article images\n\n"
         "Auto-scrape:\n"
         "/auto — Show auto-scrape status\n"
@@ -103,6 +104,8 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     count = DEFAULT_SCRAPE_COUNT
     start_offset = None
     end_offset = None
+    start_post_id = None
+    end_post_id = None
     include_audio = False
     send_as_file = True  # NEW DEFAULT: file delivery
     include_images = False
@@ -111,24 +114,33 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for arg in args:
         range_match = _RANGE_PATTERN.match(arg)
         if range_match:
-            start_offset = int(range_match.group(1))
-            end_offset = int(range_match.group(2))
-            if start_offset <= end_offset:
+            start_val = int(range_match.group(1))
+            end_val = int(range_match.group(2))
+            if start_val <= end_val:
                 await update.message.reply_text(
                     "Range format: START-END where START > END.\n"
-                    "Example: /scrape 2000-1950 (gets 50 posts)"
+                    "Example: /scrape 35808-35758 (by post ID)\n"
+                    "Example: /scrape 2000-1950 (by offset)"
                 )
                 return
-            if start_offset > MAX_OFFSET:
-                await update.message.reply_text(
-                    f"Max offset is {MAX_OFFSET}."
-                )
-                return
-            if start_offset - end_offset > MAX_SCRAPE_COUNT:
+            if start_val - end_val > MAX_SCRAPE_COUNT:
                 await update.message.reply_text(
                     f"Max range size is {MAX_SCRAPE_COUNT} posts."
                 )
                 return
+            # Auto-detect: both > MAX_OFFSET → post IDs, otherwise offsets
+            if start_val > MAX_OFFSET and end_val > MAX_OFFSET:
+                start_post_id = start_val
+                end_post_id = end_val
+            else:
+                start_offset = start_val
+                end_offset = end_val
+                if start_offset > MAX_OFFSET:
+                    await update.message.reply_text(
+                        f"Max offset is {MAX_OFFSET}. For larger numbers, "
+                        f"use post IDs (both numbers > {MAX_OFFSET})."
+                    )
+                    return
         elif arg.isdigit():
             count = min(int(arg), MAX_SCRAPE_COUNT)
         elif arg.lower() == "audio":
@@ -145,9 +157,15 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     voice = _get_voice()
     rate = _get_speed()
     use_range = start_offset is not None and end_offset is not None
+    use_post_ids = start_post_id is not None and end_post_id is not None
 
     # Build description for status message
-    desc = f"{start_offset}-{end_offset}" if use_range else f"latest {count}"
+    if use_post_ids:
+        desc = f"posts #{start_post_id}-#{end_post_id}"
+    elif use_range:
+        desc = f"{start_offset}-{end_offset}"
+    else:
+        desc = f"latest {count}"
     flags = []
     if not send_as_file:
         flags.append("inline")
@@ -171,9 +189,12 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status_msg=status_msg,
             cancel_event=cancel_event,
             use_range=use_range,
+            use_post_ids=use_post_ids,
             count=count,
             start_offset=start_offset,
             end_offset=end_offset,
+            start_post_id=start_post_id,
+            end_post_id=end_post_id,
             include_audio=include_audio,
             include_images=include_images,
             send_as_file=send_as_file,
@@ -187,9 +208,12 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _run_job(*, chat_id, bot, status_msg, cancel_event,
-                   use_range, count, start_offset, end_offset,
-                   include_audio, include_images, send_as_file,
-                   combined_audio, voice, rate=TTS_RATE):
+                   use_range, use_post_ids=False, count=20,
+                   start_offset=None, end_offset=None,
+                   start_post_id=None, end_post_id=None,
+                   include_audio=False, include_images=False,
+                   send_as_file=True, combined_audio=False,
+                   voice=None, rate=TTS_RATE):
     """Background task that runs the full pipeline + delivery."""
     result = None
     combined_path = None
@@ -210,7 +234,10 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
         )
-        if use_range:
+        if use_post_ids:
+            pipeline_kwargs["start_post_id"] = start_post_id
+            pipeline_kwargs["end_post_id"] = end_post_id
+        elif use_range:
             pipeline_kwargs["start_offset"] = start_offset
             pipeline_kwargs["end_offset"] = end_offset
         else:
@@ -275,13 +302,29 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                     bot, chat_id, result.audio_results
                 )
 
-        # Final summary
+        # Final summary with post ID range
         parts = [f"{len(result.articles)} articles"]
         if include_images:
             parts.append(f"{images_sent} images")
         if include_audio:
             parts.append(f"{audio_sent} audio")
         summary = "Done! Sent " + ", ".join(parts) + "."
+
+        # Extract post ID range from articles for "next batch" hint
+        post_ids = []
+        for a in result.articles:
+            if a.get("id"):
+                pid = a["id"].split("/")[-1] if "/" in a.get("id", "") else None
+                if pid and pid.isdigit():
+                    post_ids.append(int(pid))
+        if post_ids:
+            newest_id = max(post_ids)
+            oldest_id = min(post_ids)
+            range_size = newest_id - oldest_id
+            summary += f"\nPosts #{newest_id} to #{oldest_id}."
+            if range_size > 0:
+                summary += f"\nNext batch: /scrape {oldest_id}-{oldest_id - range_size}"
+
         await status_msg.edit_text(summary)
 
     except asyncio.CancelledError:

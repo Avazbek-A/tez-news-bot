@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass, field
-from spot_bot.scrapers.telegram_channel import scrape_latest, scrape_range
+from spot_bot.scrapers.telegram_channel import scrape_latest, scrape_range, scrape_by_post_ids
 from spot_bot.scrapers.article_fetcher import fetch_articles
 from spot_bot.cleaners.text_cleaner import clean_batch
 from spot_bot.audio.tts_generator import generate_batch, cleanup_audio_files
@@ -21,6 +21,7 @@ def _check_cancelled(cancel_event):
 
 
 async def run_pipeline(count=None, start_offset=None, end_offset=None,
+                       start_post_id=None, end_post_id=None,
                        include_audio=False, include_images=False,
                        voice=DEFAULT_VOICE, rate=TTS_RATE,
                        channel_url=None, cancel_event=None,
@@ -31,6 +32,8 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
         count: Number of latest posts to scrape (used when no range given).
         start_offset: Start of range from latest (e.g. 2000).
         end_offset: End of range from latest (e.g. 1950).
+        start_post_id: Newer post ID for ID-based range (e.g. 35808).
+        end_post_id: Older post ID for ID-based range (e.g. 35758).
         include_audio: Whether to generate MP3 audio files.
         include_images: Whether to extract article images.
         voice: TTS voice name.
@@ -50,10 +53,18 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
     if channel_url is None:
         channel_url = get_setting("channel_url")
 
-    # 1. Scrape posts — range or latest
+    # 1. Scrape posts — post IDs, offset range, or latest
     _check_cancelled(cancel_event)
 
-    if start_offset is not None and end_offset is not None:
+    if start_post_id is not None and end_post_id is not None:
+        await _report(f"Scraping posts #{start_post_id} to #{end_post_id}...")
+        posts = await scrape_by_post_ids(
+            start_post_id, end_post_id,
+            channel_url=channel_url,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
+        )
+    elif start_offset is not None and end_offset is not None:
         needed = start_offset - end_offset
         await _report(f"Scraping posts {start_offset}-{end_offset} from latest...")
         posts = await scrape_range(
