@@ -54,6 +54,15 @@ def _get_numeric_id(post_id):
         return None
 
 
+def _post_sort_key(post):
+    """Sort key for chronological ordering by post ID."""
+    pid = post.get("id", "")
+    try:
+        return int(pid.split("/")[-1])
+    except (ValueError, IndexError):
+        return 0
+
+
 async def _extract_posts_from_page(page, processed_ids):
     """Extract all new posts from the currently loaded page.
 
@@ -213,8 +222,8 @@ async def scrape_latest(count, channel_url=CHANNEL_URL, cancel_event=None,
         finally:
             await browser.close()
 
-    # Sort newest first
-    captured_posts.sort(key=lambda x: x["date"], reverse=True)
+    # Sort chronologically (oldest first) by post ID
+    captured_posts.sort(key=_post_sort_key)
     return captured_posts[:count]
 
 
@@ -320,8 +329,8 @@ async def scrape_range(start_offset, end_offset, channel_url=CHANNEL_URL,
         finally:
             await browser.close()
 
-    # Sort newest first within range
-    captured_posts.sort(key=lambda x: x["date"], reverse=True)
+    # Sort chronologically (oldest first) by post ID
+    captured_posts.sort(key=_post_sort_key)
     return captured_posts[:needed]
 
 
@@ -415,6 +424,6 @@ async def scrape_by_post_ids(start_id, end_id, channel_url=CHANNEL_URL,
         finally:
             await browser.close()
 
-    # Sort newest first
-    captured_posts.sort(key=lambda x: x["date"], reverse=True)
+    # Sort chronologically (oldest first) by post ID
+    captured_posts.sort(key=_post_sort_key)
     return captured_posts[:needed]

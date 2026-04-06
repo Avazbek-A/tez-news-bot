@@ -107,23 +107,26 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for arg in args:
         range_match = _RANGE_PATTERN.match(arg)
         if range_match:
-            start_val = int(range_match.group(1))
-            end_val = int(range_match.group(2))
-            if start_val <= end_val:
+            val_a = int(range_match.group(1))
+            val_b = int(range_match.group(2))
+            # Normalize: either order works (31000-31050 or 31050-31000)
+            hi = max(val_a, val_b)
+            lo = min(val_a, val_b)
+            if hi == lo:
                 await update.message.reply_text(t("range_format", lang))
                 return
-            if start_val - end_val > MAX_SCRAPE_COUNT:
+            if hi - lo > MAX_SCRAPE_COUNT:
                 await update.message.reply_text(
                     t("max_range", lang, max=MAX_SCRAPE_COUNT)
                 )
                 return
             # Auto-detect: both > MAX_OFFSET -> post IDs, otherwise offsets
-            if start_val > MAX_OFFSET and end_val > MAX_OFFSET:
-                start_post_id = start_val
-                end_post_id = end_val
+            if hi > MAX_OFFSET and lo > MAX_OFFSET:
+                start_post_id = hi   # newer (larger ID)
+                end_post_id = lo     # older (smaller ID)
             else:
-                start_offset = start_val
-                end_offset = end_val
+                start_offset = hi    # further from latest
+                end_offset = lo      # closer to latest
                 if start_offset > MAX_OFFSET:
                     await update.message.reply_text(
                         t("max_offset", lang, max=MAX_OFFSET)
@@ -149,7 +152,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Build description for status message
     if use_post_ids:
-        desc = f"posts #{start_post_id}-#{end_post_id}"
+        desc = f"posts #{end_post_id}-#{start_post_id}"
     elif use_range:
         desc = f"{start_offset}-{end_offset}"
     else:
@@ -313,11 +316,11 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             oldest_id = min(post_ids)
             range_size = newest_id - oldest_id
             summary += "\n" + t("posts_range", lang,
-                                newest=newest_id, oldest=oldest_id)
+                                oldest=oldest_id, newest=newest_id)
             if range_size > 0:
                 summary += "\n" + t("next_batch", lang,
-                                    start=oldest_id,
-                                    end=oldest_id - range_size)
+                                    start=newest_id,
+                                    end=newest_id + range_size)
 
         await status_msg.edit_text(summary)
 

@@ -88,19 +88,19 @@ _STRINGS = {
     },
     "range_format": {
         "en": (
-            "Range format: START-END where START > END.\n"
-            "Example: /scrape 35808-35758 (by post ID)\n"
-            "Example: /scrape 2000-1950 (by offset)"
+            "Range must be two different numbers.\n"
+            "Example: /scrape 31000-31050 (by post ID)\n"
+            "Example: /scrape 1950-2000 (by offset)"
         ),
         "ru": (
-            "Формат диапазона: НАЧАЛО-КОНЕЦ, где НАЧАЛО > КОНЕЦ.\n"
-            "Пример: /scrape 35808-35758 (по ID постов)\n"
-            "Пример: /scrape 2000-1950 (по смещению)"
+            "Диапазон должен содержать два разных числа.\n"
+            "Пример: /scrape 31000-31050 (по ID постов)\n"
+            "Пример: /scrape 1950-2000 (по смещению)"
         ),
         "uz": (
-            "Diapazon formati: BOSHI-OXIRI, BOSHI > OXIRI.\n"
-            "Misol: /scrape 35808-35758 (post ID bo'yicha)\n"
-            "Misol: /scrape 2000-1950 (siljish bo'yicha)"
+            "Diapazon ikki xil son bo'lishi kerak.\n"
+            "Misol: /scrape 31000-31050 (post ID bo'yicha)\n"
+            "Misol: /scrape 1950-2000 (siljish bo'yicha)"
         ),
     },
     "max_range": {
@@ -176,9 +176,9 @@ _STRINGS = {
         "uz": "{n} ta audio",
     },
     "posts_range": {
-        "en": "Posts #{newest} to #{oldest}.",
-        "ru": "Посты #{newest} — #{oldest}.",
-        "uz": "Postlar #{newest} — #{oldest}.",
+        "en": "Posts #{oldest} to #{newest}.",
+        "ru": "Посты #{oldest} — #{newest}.",
+        "uz": "Postlar #{oldest} — #{newest}.",
     },
     "next_batch": {
         "en": "Next batch: /scrape {start}-{end}",
