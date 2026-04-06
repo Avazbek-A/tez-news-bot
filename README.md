@@ -17,9 +17,10 @@ Telegram bot that scrapes Uzbekistan business news from public Telegram channels
 /auto off                     Disable auto-scrape
 
 /cancel                       Stop a running job
-/voice dmitry|svetlana        Switch TTS voice
+/voice dmitry|andrew|sardor   Switch TTS voice
 /speed fast                   Change audio speed (slow/normal/fast/faster/fastest)
 /speed +30%                   Custom speed value
+/lang en|ru|uz                Switch bot language
 /channel https://t.me/s/...   Switch source channel
 /status                       Show current settings
 ```
@@ -33,6 +34,7 @@ spot_bot/
   pipeline.py                      Orchestrator: scrape -> fetch -> clean -> audio
   config.py                        Constants and limits
   settings.py                      Persistent JSON settings (atomic writes)
+  translations.py                  Localization strings (en/ru/uz)
   scrapers/
     telegram_channel.py            Playwright scraper for Telegram channels
     article_fetcher.py             Playwright fetcher for spot.uz articles
@@ -180,6 +182,7 @@ Stored in `spot_bot/user_settings.json` with atomic writes (temp file + `os.repl
   "voice": "ru-RU-DmitryNeural",
   "channel_url": "https://t.me/s/spotuz",
   "speed": "+0%",
+  "language": "en",
   "auto_scrape": {
     "enabled": true,
     "interval_days": 3,
@@ -191,16 +194,33 @@ Stored in `spot_bot/user_settings.json` with atomic writes (temp file + `os.repl
 }
 ```
 
+## Languages and Voices
+
+The bot interface and TTS audio support three languages:
+
+| Language | Bot UI | TTS Voices |
+|---|---|---|
+| English (`en`) | Full | andrew, ava, emma, brian |
+| Russian (`ru`) | Full | dmitry, svetlana |
+| Uzbek (`uz`) | Full | madina, sardor |
+
+Switch language: `/lang uz`
+Switch voice: `/voice sardor`
+
+Audio announcements in combined MP3 files use the selected language:
+- EN: "Next article: [title]"
+- RU: "Следующая статья: [title]"
+- UZ: "Keyingi maqola: [title]"
+
 ## Future Improvements
 
 ### High Value
 - **AI summaries** — Claude/GPT to summarize articles, add original value
-- **Translation** — Russian to English/Uzbek, broadens audience
+- **Article translation** — Auto-translate article content between languages
 - **Incremental scraping** — Track last-read post ID, only fetch new articles
 - **Article caching** — Store fetched articles by URL, avoid re-fetching
 
 ### Medium Value
-- **More voices/languages** — Add Uzbek, English TTS options
 - **Structured logging** — Replace print() with proper logging, add Sentry
 - **Health monitoring** — Uptime checks, error rate alerting
 - **Multi-user settings** — Per-user preferences instead of global JSON

@@ -6,7 +6,7 @@ so they survive bot restarts. Uses atomic writes to prevent corruption.
 import json
 import os
 from pathlib import Path
-from spot_bot.config import DEFAULT_VOICE, CHANNEL_URL, TTS_RATE
+from spot_bot.config import DEFAULT_VOICE, CHANNEL_URL, TTS_RATE, DEFAULT_LANGUAGE
 
 SETTINGS_PATH = Path(__file__).parent / "user_settings.json"
 
@@ -14,6 +14,7 @@ _DEFAULTS = {
     "voice": DEFAULT_VOICE,
     "channel_url": CHANNEL_URL,
     "speed": TTS_RATE,
+    "language": DEFAULT_LANGUAGE,
     "auto_scrape": None,
 }
 

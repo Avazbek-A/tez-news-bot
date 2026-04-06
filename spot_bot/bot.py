@@ -11,7 +11,9 @@ from telegram.ext import (
 from spot_bot.config import (
     BOT_TOKEN,
     AVAILABLE_VOICES,
+    VOICE_LANGUAGES,
     AVAILABLE_SPEEDS,
+    AVAILABLE_LANGUAGES,
     DEFAULT_SCRAPE_COUNT,
     MAX_SCRAPE_COUNT,
     MAX_OFFSET,
@@ -21,6 +23,7 @@ from spot_bot.config import (
     MAX_AUTO_INTERVAL_DAYS,
 )
 from spot_bot.settings import get_setting, set_setting
+from spot_bot.translations import t
 from spot_bot.pipeline import run_pipeline
 from spot_bot.delivery.telegram_sender import (
     send_articles_as_text,
@@ -54,35 +57,26 @@ def _get_speed():
     return get_setting("speed")
 
 
+def _get_lang():
+    return get_setting("language") or "en"
+
+
+def _build_voice_list(lang):
+    """Build a formatted voice list grouped by language."""
+    lines = []
+    for lang_code, names in VOICE_LANGUAGES.items():
+        label = t(f"lang_label_{lang_code}", lang)
+        lines.append(f"{label}: {', '.join(names)}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # /start
 # ---------------------------------------------------------------------------
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Spot News Bot\n\n"
-        "Scraping:\n"
-        "/scrape 50 — Latest 50 as .txt file\n"
-        "/scrape 50 inline — Latest 50 as individual messages\n"
-        "/scrape 50 audio — .txt + individual MP3s\n"
-        "/scrape 50 audio combined — .txt + one combined MP3\n"
-        "/scrape 35808-35758 — Posts by ID (stable, never shifts)\n"
-        "/scrape 2000-1950 — Posts by offset from latest\n"
-        "/scrape 50 images — .txt + article images\n\n"
-        "Auto-scrape:\n"
-        "/auto — Show auto-scrape status\n"
-        "/auto on 3 — Enable every 3 days\n"
-        "/auto 50 audio combined — Set what to auto-scrape\n"
-        "/auto off — Disable auto-scrape\n\n"
-        "Control:\n"
-        "/cancel — Stop a running job\n\n"
-        "Settings:\n"
-        "/voice dmitry — Switch to male voice\n"
-        "/voice svetlana — Switch to female voice\n"
-        "/speed fast — Change audio speed (slow/normal/fast/faster/fastest)\n"
-        "/channel — Show/change source channel\n"
-        "/status — Show current settings"
-    )
+    lang = _get_lang()
+    await update.message.reply_text(t("start_help", lang))
 
 
 # ---------------------------------------------------------------------------
@@ -91,12 +85,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    lang = _get_lang()
 
     # Reject if a job is already running for this chat
     if chat_id in _running_jobs:
-        await update.message.reply_text(
-            "A job is already running. Use /cancel to stop it first."
-        )
+        await update.message.reply_text(t("job_running", lang))
         return
 
     # Parse args
@@ -107,7 +100,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_post_id = None
     end_post_id = None
     include_audio = False
-    send_as_file = True  # NEW DEFAULT: file delivery
+    send_as_file = True
     include_images = False
     combined_audio = False
 
@@ -117,18 +110,14 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             start_val = int(range_match.group(1))
             end_val = int(range_match.group(2))
             if start_val <= end_val:
-                await update.message.reply_text(
-                    "Range format: START-END where START > END.\n"
-                    "Example: /scrape 35808-35758 (by post ID)\n"
-                    "Example: /scrape 2000-1950 (by offset)"
-                )
+                await update.message.reply_text(t("range_format", lang))
                 return
             if start_val - end_val > MAX_SCRAPE_COUNT:
                 await update.message.reply_text(
-                    f"Max range size is {MAX_SCRAPE_COUNT} posts."
+                    t("max_range", lang, max=MAX_SCRAPE_COUNT)
                 )
                 return
-            # Auto-detect: both > MAX_OFFSET → post IDs, otherwise offsets
+            # Auto-detect: both > MAX_OFFSET -> post IDs, otherwise offsets
             if start_val > MAX_OFFSET and end_val > MAX_OFFSET:
                 start_post_id = start_val
                 end_post_id = end_val
@@ -137,8 +126,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 end_offset = end_val
                 if start_offset > MAX_OFFSET:
                     await update.message.reply_text(
-                        f"Max offset is {MAX_OFFSET}. For larger numbers, "
-                        f"use post IDs (both numbers > {MAX_OFFSET})."
+                        t("max_offset", lang, max=MAX_OFFSET)
                     )
                     return
         elif arg.isdigit():
@@ -146,7 +134,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif arg.lower() == "audio":
             include_audio = True
         elif arg.lower() in ("file", "txt"):
-            send_as_file = True  # Redundant but backward-compatible
+            send_as_file = True
         elif arg.lower() == "inline":
             send_as_file = False
         elif arg.lower() in ("images", "img"):
@@ -176,7 +164,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     flag_str = (" + " + ", ".join(flags)) if flags else ""
 
     status_msg = await update.message.reply_text(
-        f"Starting: {desc}{flag_str}..."
+        t("starting", lang, desc=f"{desc}{flag_str}")
     )
 
     # Create cancel event and launch as background task
@@ -201,6 +189,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             combined_audio=combined_audio,
             voice=voice,
             rate=rate,
+            lang=lang,
         )
     )
 
@@ -213,7 +202,7 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                    start_post_id=None, end_post_id=None,
                    include_audio=False, include_images=False,
                    send_as_file=True, combined_audio=False,
-                   voice=None, rate=TTS_RATE):
+                   voice=None, rate=TTS_RATE, lang="en"):
     """Background task that runs the full pipeline + delivery."""
     result = None
     combined_path = None
@@ -246,11 +235,11 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         result = await run_pipeline(**pipeline_kwargs)
 
         if not result.articles:
-            await status_msg.edit_text("No articles found.")
+            await status_msg.edit_text(t("no_articles", lang))
             return
 
         await status_msg.edit_text(
-            f"Sending {len(result.articles)} articles..."
+            t("sending_articles", lang, count=len(result.articles))
         )
 
         # Send text — as file or inline messages
@@ -262,7 +251,7 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         # Send images if requested
         images_sent = 0
         if include_images:
-            await status_msg.edit_text("Sending images...")
+            await status_msg.edit_text(t("sending_images", lang))
             images_sent = await send_article_images(
                 bot, chat_id, result.articles
             )
@@ -272,14 +261,16 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         if include_audio and result.audio_results:
             if combined_audio:
                 # Combine into one MP3 with title announcements
-                await status_msg.edit_text("Combining audio with announcements...")
+                await status_msg.edit_text(t("combining_audio", lang))
                 tmpdir = tempfile.mkdtemp(prefix="spot_combined_")
                 combined_path = os.path.join(tmpdir, "combined.mp3")
                 combined_path = await combine_audio_with_announcements(
-                    result.audio_results, combined_path, voice, rate
+                    result.audio_results, combined_path, voice, rate,
+                    announcement_prefix=t("announcement_prefix", lang),
+                    untitled_text=t("untitled", lang),
                 )
                 if combined_path:
-                    await status_msg.edit_text("Sending combined audio...")
+                    await status_msg.edit_text(t("sending_combined", lang))
                     success = await send_combined_audio(
                         bot, chat_id, combined_path,
                         len(result.articles),
@@ -291,24 +282,24 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                     else:
                         # File too large — fall back to individual files
                         await status_msg.edit_text(
-                            "Combined file too large, sending individually..."
+                            t("combined_too_large", lang)
                         )
                         audio_sent = await send_audio_files(
                             bot, chat_id, result.audio_results
                         )
             else:
-                await status_msg.edit_text("Sending audio files...")
+                await status_msg.edit_text(t("sending_audio", lang))
                 audio_sent = await send_audio_files(
                     bot, chat_id, result.audio_results
                 )
 
         # Final summary with post ID range
-        parts = [f"{len(result.articles)} articles"]
+        parts = [t("articles_count", lang, n=len(result.articles))]
         if include_images:
-            parts.append(f"{images_sent} images")
+            parts.append(t("images_count", lang, n=images_sent))
         if include_audio:
-            parts.append(f"{audio_sent} audio")
-        summary = "Done! Sent " + ", ".join(parts) + "."
+            parts.append(t("audio_count", lang, n=audio_sent))
+        summary = t("done_sent", lang, parts=", ".join(parts))
 
         # Extract post ID range from articles for "next batch" hint
         post_ids = []
@@ -321,21 +312,24 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             newest_id = max(post_ids)
             oldest_id = min(post_ids)
             range_size = newest_id - oldest_id
-            summary += f"\nPosts #{newest_id} to #{oldest_id}."
+            summary += "\n" + t("posts_range", lang,
+                                newest=newest_id, oldest=oldest_id)
             if range_size > 0:
-                summary += f"\nNext batch: /scrape {oldest_id}-{oldest_id - range_size}"
+                summary += "\n" + t("next_batch", lang,
+                                    start=oldest_id,
+                                    end=oldest_id - range_size)
 
         await status_msg.edit_text(summary)
 
     except asyncio.CancelledError:
         try:
-            await status_msg.edit_text("Job cancelled.")
+            await status_msg.edit_text(t("cancelled", lang))
         except Exception:
             pass
 
     except Exception as e:
         try:
-            await status_msg.edit_text(f"Error: {e}")
+            await status_msg.edit_text(t("error", lang, e=e))
         except Exception:
             pass
 
@@ -352,16 +346,17 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
 
 async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    lang = _get_lang()
     job = _running_jobs.get(chat_id)
 
     if not job:
-        await update.message.reply_text("No active job to cancel.")
+        await update.message.reply_text(t("no_job", lang))
         return
 
     # Signal cancellation
     job["cancel_event"].set()
     job["task"].cancel()
-    await update.message.reply_text("Cancelling...")
+    await update.message.reply_text(t("cancelling", lang))
 
 
 # ---------------------------------------------------------------------------
@@ -370,26 +365,27 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args or []
+    lang = _get_lang()
+    voice_list = _build_voice_list(lang)
 
     if not args:
         current = _get_voice()
-        names = ", ".join(AVAILABLE_VOICES.keys())
         await update.message.reply_text(
-            f"Current voice: {current}\nAvailable: {names}\n"
-            f"Usage: /voice dmitry"
+            t("voice_current", lang, voice=current, voice_list=voice_list)
         )
         return
 
     name = args[0].lower()
     if name not in AVAILABLE_VOICES:
-        names = ", ".join(AVAILABLE_VOICES.keys())
         await update.message.reply_text(
-            f"Unknown voice '{name}'. Available: {names}"
+            t("voice_unknown", lang, name=name, voice_list=voice_list)
         )
         return
 
     set_setting("voice", AVAILABLE_VOICES[name])
-    await update.message.reply_text(f"Voice set to: {AVAILABLE_VOICES[name]}")
+    await update.message.reply_text(
+        t("voice_set", lang, voice=AVAILABLE_VOICES[name])
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -398,15 +394,13 @@ async def cmd_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_speed(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args or []
+    lang = _get_lang()
 
     if not args:
         current = _get_speed()
         names = ", ".join(AVAILABLE_SPEEDS.keys())
         await update.message.reply_text(
-            f"Current speed: {current}\n"
-            f"Presets: {names}\n"
-            f"Custom: /speed +30% or /speed -20%\n"
-            f"Usage: /speed fast"
+            t("speed_current", lang, speed=current, presets=names)
         )
         return
 
@@ -421,14 +415,35 @@ async def cmd_speed(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         names = ", ".join(AVAILABLE_SPEEDS.keys())
         await update.message.reply_text(
-            f"Unknown speed '{name}'.\n"
-            f"Presets: {names}\n"
-            f"Or use custom: +30%, -20%, etc."
+            t("speed_unknown", lang, name=name, presets=names)
         )
         return
 
     set_setting("speed", rate)
-    await update.message.reply_text(f"Speed set to: {rate}")
+    await update.message.reply_text(t("speed_set", lang, speed=rate))
+
+
+# ---------------------------------------------------------------------------
+# /lang
+# ---------------------------------------------------------------------------
+
+async def cmd_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    lang = _get_lang()
+
+    if not args:
+        await update.message.reply_text(t("lang_current", lang))
+        return
+
+    new_lang = args[0].lower()
+    if new_lang not in AVAILABLE_LANGUAGES:
+        await update.message.reply_text(
+            t("lang_unknown", lang, code=new_lang)
+        )
+        return
+
+    set_setting("language", new_lang)
+    await update.message.reply_text(t("lang_set", new_lang))
 
 
 # ---------------------------------------------------------------------------
@@ -437,25 +452,22 @@ async def cmd_speed(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args or []
+    lang = _get_lang()
 
     if not args:
         current = get_setting("channel_url")
         await update.message.reply_text(
-            f"Current channel: {current}\n\n"
-            f"To change: /channel https://t.me/s/channel_name"
+            t("channel_current", lang, url=current)
         )
         return
 
     url = args[0].strip()
     if not url.startswith("https://t.me/s/"):
-        await update.message.reply_text(
-            "URL must start with https://t.me/s/\n"
-            "Example: /channel https://t.me/s/spotuz"
-        )
+        await update.message.reply_text(t("channel_invalid", lang))
         return
 
     set_setting("channel_url", url)
-    await update.message.reply_text(f"Channel set to: {url}")
+    await update.message.reply_text(t("channel_set", lang, url=url))
 
 
 # ---------------------------------------------------------------------------
@@ -464,14 +476,18 @@ async def cmd_channel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    lang = _get_lang()
     voice = _get_voice()
     channel = get_setting("channel_url")
+    speed = _get_speed()
     has_job = chat_id in _running_jobs
 
     # Auto-scrape status
     auto = get_setting("auto_scrape")
     if auto and auto.get("enabled"):
-        auto_info = f"Every {auto['interval_days']}d, {auto.get('count', DEFAULT_AUTO_SCRAPE_COUNT)} articles"
+        auto_info = t("auto_status_on", lang,
+                       days=auto["interval_days"],
+                       count=auto.get("count", DEFAULT_AUTO_SCRAPE_COUNT))
         flags = []
         if auto.get("include_audio"):
             flags.append("combined audio" if auto.get("combined_audio") else "audio")
@@ -480,19 +496,23 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if flags:
             auto_info += " + " + ", ".join(flags)
     else:
-        auto_info = "Off"
+        auto_info = t("status_off", lang)
 
-    speed = _get_speed()
+    # Language display
+    lang_names = {"en": "English", "ru": "Русский", "uz": "O'zbek"}
+    lang_display = lang_names.get(lang, lang)
 
     await update.message.reply_text(
-        f"Channel: {channel}\n"
-        f"Voice: {voice}\n"
-        f"Speed: {speed}\n"
-        f"Auto-scrape: {auto_info}\n"
-        f"Active job: {'Yes' if has_job else 'No'}\n"
-        f"Default count: {DEFAULT_SCRAPE_COUNT}\n"
-        f"Max count: {MAX_SCRAPE_COUNT}\n"
-        f"Max offset: {MAX_OFFSET}"
+        t("status", lang,
+          channel=channel,
+          voice=voice,
+          speed=speed,
+          language=lang_display,
+          auto=auto_info,
+          job=t("status_yes", lang) if has_job else t("status_no", lang),
+          default_count=DEFAULT_SCRAPE_COUNT,
+          max_count=MAX_SCRAPE_COUNT,
+          max_offset=MAX_OFFSET)
     )
 
 
@@ -529,22 +549,24 @@ async def _auto_scrape_callback(context: ContextTypes.DEFAULT_TYPE):
     config = context.job.data
     chat_id = config["chat_id"]
     bot = context.bot
+    lang = _get_lang()
 
     # Skip if a job is already running
     if chat_id in _running_jobs:
         try:
-            await bot.send_message(chat_id, "Auto-scrape skipped: a job is already running.")
+            await bot.send_message(chat_id, t("auto_skipped", lang))
         except Exception:
             pass
         return
 
     try:
-        status_msg = await bot.send_message(chat_id, "Auto-scrape starting...")
+        status_msg = await bot.send_message(chat_id, t("auto_starting", lang))
     except Exception:
         return
 
     cancel_event = asyncio.Event()
     voice = _get_voice()
+    rate = _get_speed()
 
     task = asyncio.create_task(
         _run_job(
@@ -561,6 +583,8 @@ async def _auto_scrape_callback(context: ContextTypes.DEFAULT_TYPE):
             send_as_file=config.get("send_as_file", True),
             combined_audio=config.get("combined_audio", False),
             voice=voice,
+            rate=rate,
+            lang=lang,
         )
     )
     _running_jobs[chat_id] = {"task": task, "cancel_event": cancel_event}
@@ -569,28 +593,26 @@ async def _auto_scrape_callback(context: ContextTypes.DEFAULT_TYPE):
 async def cmd_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Configure auto-scrape scheduling."""
     args = context.args or []
+    lang = _get_lang()
 
     # /auto — show status
     if not args:
         config = get_setting("auto_scrape")
         if config and config.get("enabled"):
-            info = f"Every {config['interval_days']} day(s), {config.get('count', DEFAULT_AUTO_SCRAPE_COUNT)} articles"
             flags = []
             if config.get("include_audio"):
                 flags.append("combined audio" if config.get("combined_audio") else "audio")
             if config.get("include_images"):
                 flags.append("images")
-            if flags:
-                info += " + " + ", ".join(flags)
-            await update.message.reply_text(f"Auto-scrape: {info}")
-        else:
+            flag_str = (" + " + ", ".join(flags)) if flags else ""
             await update.message.reply_text(
-                "Auto-scrape: Off\n\n"
-                "Usage:\n"
-                "/auto on 3 — Enable every 3 days\n"
-                "/auto 50 audio combined — Set options\n"
-                "/auto off — Disable"
+                t("auto_show_on", lang,
+                  days=config["interval_days"],
+                  count=config.get("count", DEFAULT_AUTO_SCRAPE_COUNT),
+                  flags=flag_str)
             )
+        else:
+            await update.message.reply_text(t("auto_show_off", lang))
         return
 
     # /auto off
@@ -600,11 +622,10 @@ async def cmd_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
             config["enabled"] = False
             set_setting("auto_scrape", config)
         _schedule_auto_scrape(context.application, None)
-        await update.message.reply_text("Auto-scrape disabled.")
+        await update.message.reply_text(t("auto_disabled", lang))
         return
 
     # /auto on [N] or /auto [count] [flags...]
-    # Parse interval and scrape options
     existing = get_setting("auto_scrape") or {}
     interval_days = existing.get("interval_days", 3)
     count = existing.get("count", DEFAULT_AUTO_SCRAPE_COUNT)
@@ -638,7 +659,8 @@ async def cmd_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Validate interval
     if interval_days < MIN_AUTO_INTERVAL_DAYS or interval_days > MAX_AUTO_INTERVAL_DAYS:
         await update.message.reply_text(
-            f"Interval must be {MIN_AUTO_INTERVAL_DAYS}-{MAX_AUTO_INTERVAL_DAYS} days."
+            t("auto_interval_invalid", lang,
+              min=MIN_AUTO_INTERVAL_DAYS, max=MAX_AUTO_INTERVAL_DAYS)
         )
         return
 
@@ -663,8 +685,8 @@ async def cmd_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     flag_str = (" + " + ", ".join(flags)) if flags else ""
 
     await update.message.reply_text(
-        f"Auto-scrape enabled: every {interval_days} day(s), "
-        f"{count} articles{flag_str}."
+        t("auto_enabled", lang,
+          days=interval_days, count=count, flags=flag_str)
     )
 
 
@@ -690,6 +712,7 @@ def create_app():
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("voice", cmd_voice))
     app.add_handler(CommandHandler("speed", cmd_speed))
+    app.add_handler(CommandHandler("lang", cmd_lang))
     app.add_handler(CommandHandler("channel", cmd_channel))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("auto", cmd_auto))

@@ -42,9 +42,27 @@ BLOCK_TAGS = {
 # TTS settings
 DEFAULT_VOICE = "ru-RU-DmitryNeural"
 AVAILABLE_VOICES = {
+    # Russian
     "dmitry": "ru-RU-DmitryNeural",
     "svetlana": "ru-RU-SvetlanaNeural",
+    # English
+    "andrew": "en-US-AndrewNeural",
+    "ava": "en-US-AvaNeural",
+    "emma": "en-US-EmmaNeural",
+    "brian": "en-US-BrianNeural",
+    # Uzbek
+    "madina": "uz-UZ-MadinaNeural",
+    "sardor": "uz-UZ-SardorNeural",
 }
+VOICE_LANGUAGES = {
+    "ru": ["dmitry", "svetlana"],
+    "en": ["andrew", "ava", "emma", "brian"],
+    "uz": ["madina", "sardor"],
+}
+
+# Language settings
+DEFAULT_LANGUAGE = "en"
+AVAILABLE_LANGUAGES = {"en", "ru", "uz"}
 TTS_RATE = "+0%"
 AVAILABLE_SPEEDS = {
     "slow": "-30%",

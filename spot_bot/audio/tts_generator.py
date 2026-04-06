@@ -126,10 +126,12 @@ def combine_audio_files(results, output_path):
     return output_path
 
 
-async def combine_audio_with_announcements(results, output_path, voice=DEFAULT_VOICE, rate=TTS_RATE):
+async def combine_audio_with_announcements(results, output_path, voice=DEFAULT_VOICE,
+                                           rate=TTS_RATE, announcement_prefix="Next article:",
+                                           untitled_text="Untitled"):
     """Combine MP3 files with title announcements interleaved.
 
-    Generates a short TTS clip saying "Следующая статья: [title]" before
+    Generates a short TTS clip saying "[prefix] [title]" before
     each article's audio, then binary-concatenates everything into one file.
 
     Args:
@@ -137,6 +139,8 @@ async def combine_audio_with_announcements(results, output_path, voice=DEFAULT_V
         output_path: Path to write the combined MP3 file.
         voice: TTS voice name (same as article audio).
         rate: TTS speech rate.
+        announcement_prefix: Localized prefix (e.g. "Next article:").
+        untitled_text: Localized fallback for articles without titles.
 
     Returns:
         The output_path if successful, None if no files to combine.
@@ -152,8 +156,8 @@ async def combine_audio_with_announcements(results, output_path, voice=DEFAULT_V
     try:
         # Generate announcement clips
         for i, (article, _) in enumerate(valid):
-            title = (article.get("title") or "").strip() or "Без названия"
-            ann_text = f"Следующая статья: {title}"
+            title = (article.get("title") or "").strip() or untitled_text
+            ann_text = f"{announcement_prefix} {title}"
             ann_path = os.path.join(tmpdir, f"announcement_{i:03d}.mp3")
             result = await generate_audio(ann_text, ann_path, voice, rate)
             announcement_paths.append(result)
