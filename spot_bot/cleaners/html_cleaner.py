@@ -1,8 +1,14 @@
-import re
-from urllib.parse import urljoin
-from bs4 import BeautifulSoup, NavigableString
-from spot_bot.config import BODY_SELECTORS, STRIP_TAGS, STRIP_CLASSES, BLOCK_TAGS
+from __future__ import annotations
 
+import re
+from typing import Any
+from urllib.parse import urljoin
+
+from bs4 import BeautifulSoup, NavigableString
+
+from spot_bot.config import BLOCK_TAGS, BODY_SELECTORS, STRIP_CLASSES, STRIP_TAGS
+
+Image = dict[str, str]
 
 # Single-word garbage lines to always discard
 GARBAGE_EXACT = {
@@ -11,7 +17,9 @@ GARBAGE_EXACT = {
 }
 
 
-def clean_html(html_content, base_url=""):
+def clean_html(
+    html_content: str, base_url: str = "",
+) -> tuple[str | None, str | None, list[Image]]:
     """Extract headline, body text, and images from a spot.uz article HTML page.
 
     Returns (headline, body_text, images) where:
@@ -71,11 +79,11 @@ def clean_html(html_content, base_url=""):
     # KEY FIX: Instead of get_text(separator="\n") which breaks inline
     # elements (<a>, <b>, <span>) onto separate lines, we process
     # block-level elements individually and join inline content with spaces.
-    paragraphs = []
+    paragraphs: list[str] = []
     _extract_blocks(body_elem, paragraphs)
 
     # 8. Filter garbage lines
-    cleaned = []
+    cleaned: list[str] = []
     for para in paragraphs:
         para = para.strip()
         if not para:
@@ -106,7 +114,7 @@ def clean_html(html_content, base_url=""):
 _TRACKER_PATTERN = re.compile(r"pixel|tracker|beacon|1x1|spacer|blank", re.IGNORECASE)
 
 
-def extract_images(body_elem, base_url=""):
+def extract_images(body_elem: Any, base_url: str = "") -> list[Image]:
     """Extract article images from an HTML element.
 
     Finds all <img> tags, resolves relative URLs, and filters out
@@ -114,8 +122,8 @@ def extract_images(body_elem, base_url=""):
 
     Returns list of {"url": ..., "alt": ...} dicts.
     """
-    images = []
-    seen_urls = set()
+    images: list[Image] = []
+    seen_urls: set[str] = set()
 
     for img in body_elem.find_all("img"):
         src = img.get("src", "") or img.get("data-src", "")
@@ -156,14 +164,14 @@ def extract_images(body_elem, base_url=""):
     return images
 
 
-def _extract_blocks(element, paragraphs):
+def _extract_blocks(element: Any, paragraphs: list[str]) -> None:
     """Recursively extract text from an element, respecting block vs inline.
 
     Block-level children become separate paragraphs.
     Inline children and NavigableStrings are joined with spaces into the
     current paragraph.
     """
-    inline_parts = []
+    inline_parts: list[str] = []
 
     for child in element.children:
         if isinstance(child, NavigableString):
@@ -193,7 +201,7 @@ def _extract_blocks(element, paragraphs):
             paragraphs.append(merged.strip())
 
 
-def clean_telegram_text(html_text):
+def clean_telegram_text(html_text: str | None) -> str:
     """Extract plain text from a Telegram post's HTML content."""
     if not html_text:
         return ""

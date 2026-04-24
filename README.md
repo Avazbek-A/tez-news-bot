@@ -1,112 +1,147 @@
 # Tez News Bot
 
-Telegram bot that scrapes Uzbekistan business news from public Telegram channels, fetches full articles, cleans them, and delivers as text files or AI-generated audio with Microsoft Edge TTS.
+Telegram bot that scrapes Uzbekistan business news from public Telegram channels, fetches full articles, cleans them, filters by your keywords, optionally summarizes with Claude, and delivers as text files or AI-generated audio with Microsoft Edge TTS. Per-user settings, bookmarks, keyword filters, and scrape history are all persisted in SQLite.
 
 ## Commands
+
+### Scraping
 
 ```
 /scrape 50                    Latest 50 articles as .txt file
 /scrape 50 audio combined     Latest 50 with one combined MP3
+/scrape 50 summary            Prepend a 2-sentence Claude summary to each article
 /scrape 35808-35758           Posts by ID (stable, never shifts)
 /scrape 2000-1950             Posts by offset from latest
 /scrape 50 images             Articles with images
 /scrape 50 inline             Send as individual messages
+/latest                       Scrape only posts newer than last time
 
 /auto on 3                    Auto-scrape every 3 days
 /auto 50 audio combined       Configure auto-scrape options
 /auto off                     Disable auto-scrape
 
 /cancel                       Stop a running job
-/voice dmitry|andrew|sardor   Switch TTS voice
+```
+
+### Per-user settings
+
+```
+/voice dmitry|andrew|sardor   Switch TTS voice (per-user)
 /speed fast                   Change audio speed (slow/normal/fast/faster/fastest)
 /speed +30%                   Custom speed value
-/lang en|ru|uz                Switch bot language
-/channel https://t.me/s/...   Switch source channel
-/status                       Show current settings
+/lang en|ru|uz                Switch bot language (per-user)
+/channel https://t.me/s/...   Switch source channel (per-user)
+/status                       Show your current settings
+```
+
+### Discovery
+
+```
+/filter add <word>            Keep only articles containing the word
+/filter exclude <word>        Drop articles containing the word
+/filter remove <word>         Remove a rule
+/filter list                  Show all rules
+/filter clear                 Remove everything
+
+/save <post_id>               Bookmark an article (inline ⭐ Save button too)
+/favorites                    List your saved articles
+/history                      Last 10 scrape operations with status
 ```
 
 ## Architecture
 
 ```
-run_bot.py                         Entry point
+run_bot.py                         Entry point (wires setup_logging + create_app)
 spot_bot/
-  bot.py                           Command handlers + job scheduling
-  pipeline.py                      Orchestrator: scrape -> fetch -> clean -> audio
-  config.py                        Constants and limits
-  settings.py                      Persistent JSON settings (atomic writes)
+  bot.py                           Command handlers + app factory
+  jobs.py                          Background scrape job + auto-scrape scheduler
+  pipeline.py                      Orchestrator: scrape → fetch → clean → filter → summary → audio
+  config.py                        Constants, timeouts, rate-limits
+  settings.py                      Legacy global JSON (migrated once into storage/)
+  logging_config.py                Structured logging w/ op_id via contextvars
+  errors.py                        UserFacingError + exception classifier
   translations.py                  Localization strings (en/ru/uz)
+  handlers/
+    features.py                    /latest, /filter, /save, /favorites, /history + ⭐ callback
   scrapers/
-    telegram_channel.py            Playwright scraper for Telegram channels
-    article_fetcher.py             Playwright fetcher for spot.uz articles
+    browser_pool.py                Shared Playwright browser (one per process)
+    telegram_channel.py            Scroll-and-collect for Telegram channel posts
+    article_fetcher.py             Parallel spot.uz article fetch (cache-aware)
   cleaners/
     html_cleaner.py                HTML extraction, block/inline text flow
     text_cleaner.py                Remove ads, URLs, social footers, normalize for TTS
   audio/
-    tts_generator.py               Edge TTS generation, parallel batch, combine with announcements
+    tts_generator.py               Edge TTS, adaptive timeout, parallel batch, combine w/ announcements
   delivery/
-    telegram_sender.py             Send text, files, images, audio via Telegram API
+    telegram_sender.py             Send text/files/images/audio; RetryAfter-aware
+  storage/
+    db.py                          aiosqlite connection + migrations
+    user_settings.py               Per-user settings w/ legacy JSON migration
+    article_cache.py               24h URL cache of parsed articles
+    filters.py                     Per-user keyword include/exclude rules
+    favorites.py                   Per-user bookmarks
+    op_log.py                      Scrape audit trail
+  ai/
+    summarize.py                   Claude Haiku summaries (optional) + per-lang cache
+  utils/
+    retry.py                       @async_retry w/ exponential backoff + jitter
 ```
 
 ## Pipeline Flow
 
 ```
-1. SCRAPE        Playwright loads t.me/s/channel, scrolls, extracts posts
-                 3 modes: latest N, offset range, post ID range
+1. SCRAPE        Shared Playwright browser loads t.me/s/channel, scrolls, extracts posts
+                 3 modes: latest N, offset range, post ID range (inclusive)
+                 DRY'd into _collect_posts() — single scroll-and-stall loop
                  Output: list of posts with Telegram text + spot.uz links
 
 2. FETCH         For each post with a spot.uz link, fetch full HTML
-                 6 parallel Playwright pages (semaphore-limited)
+                 Article cache (24h TTL) checked first — hit skips the browser entirely
+                 6 parallel pages (semaphore-limited)
                  Route blocking: CSS/fonts always blocked, images optional
-                 Fallback: Telegram text if spot.uz unreachable
-                 Output: articles with title, body, date, images
+                 @async_retry on navigation; graceful fallback to Telegram text on error
+                 Output: articles with title, body, date, images, source
 
 3. CLEAN         Strip ads, navigation, social footers, tracking
                  Block vs inline text extraction (preserves paragraph structure)
                  Remove: URLs, hashtags, cross-references, promo markers
                  Normalize dashes for TTS pacing
-                 Output: clean text ready for reading or TTS
+                 Runs in asyncio.to_thread so the event loop stays responsive
 
-4. AUDIO         Edge TTS: free Microsoft voices, no API key
+4. FILTER        Per-user keyword include/exclude (case-insensitive, title+body)
+                 Empty-body articles dropped + reported by post ID
+                 Output: cleaned, filtered articles
+
+5. SUMMARY       If /scrape ... summary and ANTHROPIC_API_KEY is set:
+   (optional)    Claude Haiku 4.5, 2 sentences, cached by (post_id, lang)
+                 Adds `summary` field to each article
+
+6. AUDIO         Edge TTS: free Microsoft voices, no API key
    (optional)    4 parallel TTS calls (semaphore-limited)
-                 60-second timeout per article
+                 Adaptive timeout (30s base + 10s/1000 chars, capped 180s)
                  Combined mode: generates "Next article: [title]" announcements
                  Binary MP3 concatenation (valid for CBR files)
-                 Output: individual or combined MP3 files
 
-5. DELIVER       Text: .txt file (default) or inline messages (split at 4096 chars)
+7. DELIVER       Text: .txt file (default) or inline messages (split at 4096 chars)
                  Audio: individual MP3s or one combined file
                  Images: photos with captions
-                 Rate-limited: 0.3-0.5s between sends
+                 Each article gets an inline ⭐ Save button
+                 Telegram RetryAfter handled automatically
 ```
 
-## Hard Limits
+## Observability
 
-| Limit | Value | Why |
-|---|---|---|
-| Max articles per scrape | 200 | `MAX_SCRAPE_COUNT` — prevents overload |
-| Max offset from latest | 5,000 | `MAX_OFFSET` — Telegram pagination limit |
-| Telegram message size | 4,096 chars | Telegram Bot API hard limit |
-| Telegram file size | 50 MB | Bot API limit — combined audio falls back to individual if exceeded |
-| TTS timeout per article | 60 seconds | Prevents hanging on slow Microsoft endpoints |
-| Concurrent article fetches | 6 | `MAX_CONCURRENT_FETCHES` — RAM vs speed tradeoff |
-| Concurrent TTS calls | 4 | `MAX_CONCURRENT_TTS` — API rate + CPU balance |
-| Auto-scrape interval | 1-30 days | Reasonable scheduling bounds |
-| One active job per chat | enforced | Prevents resource exhaustion |
+- **Structured logging** — every job gets a short op_id propagated via contextvars, so every scrape/fetch/clean/deliver log line carries it without threading args through call sites.
+- **Text + JSON formats** — `LOG_FORMAT=json` for log aggregators; defaults to human-readable.
+- **Rotating file logs** — `logs/spot_bot.log` (10 MB × 5 files), plus stderr.
+- **Operation audit** — every `/scrape` run is recorded in the `operation_log` table with start/complete/failure/cancel, article count, and error. Viewable via `/history`.
 
-## Post ID vs Offset Ranges
+## Reliability
 
-**Offsets shift** when new posts are published. `/scrape 2000-1950` points to different posts every day.
-
-**Post IDs are permanent.** Post #35808 is always #35808. The bot auto-detects:
-- Numbers <= 5000: treated as offsets from latest
-- Numbers > 5000: treated as absolute post IDs
-
-Every scrape shows the post ID range in the summary:
-```
-Done! Sent 50 articles.
-Posts #35808 to #35758.
-Next batch: /scrape 35758-35708
-```
+- **Retry with backoff** — `spot_bot.utils.retry.async_retry` (exponential + jitter) on Playwright navigation and TTS.
+- **Telegram rate limits** — delivery wraps every send with a RetryAfter-aware loop that honors server-requested sleep exactly.
+- **Adaptive TTS timeout** — scales with text length so long articles don't false-timeout.
+- **User-safe errors** — `classify_exception()` maps internal errors to translated, actionable messages; raw exception text never leaks to users (full detail goes to logs).
 
 ## Performance
 
@@ -114,39 +149,66 @@ Typical timing for 50 articles:
 
 | Phase | Duration | Parallelism |
 |---|---|---|
-| Scrape channel | 5-10s | 1 browser, scroll-based |
-| Fetch articles | 20-30s | 6 concurrent pages |
-| Clean text | 1-2s | CPU-bound |
+| Scrape channel | 4-8s | 1 shared browser, scroll-based |
+| Fetch articles | 15-25s | 6 concurrent pages, shared context |
+| Clean text | 1-2s | CPU in worker thread |
+| Summary (if on) | 5-15s | 4 concurrent Claude calls, cache hits free |
 | Generate audio | 30-50s | 4 concurrent TTS |
 | Combine + send | 10-20s | Sequential, rate-limited |
-| **Total** | **~70-115s** | |
+| **Total** | **~65-120s** | |
+
+Caching wins: on repeated ranges, article cache hits cut fetch time by 30-40%. Summary cache is per-(post_id, lang), so regenerating an article in a different UI language still summarizes once per language.
+
+## Hard Limits
+
+| Limit | Value | Why |
+|---|---|---|
+| Max articles per scrape | 200 | `MAX_SCRAPE_COUNT` |
+| Max offset from latest | 5,000 | `MAX_OFFSET` — Telegram pagination |
+| Telegram message size | 4,096 chars | Bot API hard limit |
+| Telegram file size | 50 MB | Bot API limit |
+| Article cache TTL | 24h | Balance freshness vs fetches |
+| One active job per chat | enforced | Prevents resource exhaustion |
+
+All timeouts, retry counts, and concurrency levels live in `spot_bot/config.py`.
 
 ## Failure Handling
 
 | Failure | What happens |
 |---|---|
-| spot.uz down | Falls back to Telegram post text |
-| TTS timeout (>60s) | Skips that article, continues with rest |
+| spot.uz down / slow | Navigation retried once, then falls back to Telegram text |
+| TTS timeout | Skips that article's audio, continues |
 | Combined audio >50MB | Falls back to individual MP3 files |
-| Settings file corrupt | Resets to defaults |
+| DB corrupt | Recreates missing tables on startup via migrations |
+| Settings JSON corrupt (legacy) | Resets to defaults; DB is source of truth going forward |
 | Job already running | Rejects new `/scrape`, suggests `/cancel` |
-| Browser crash | Resources cleaned up in `finally` block |
-| Cancel during scrape | Stops at next checkpoint, sends partial results |
+| Browser crash | Pool reinitializes on next request |
+| Cancel during scrape | Stops at next checkpoint; op_log marks 'cancelled' |
+| Telegram 429 | RetryAfter honored exactly, then retries |
+| Missing ANTHROPIC_API_KEY + /scrape summary | Summary step silently skipped, scrape continues |
 
 ## Setup
 
 ### Local
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+pip install -e .
 playwright install chromium
 
-# Configure
 echo "BOT_TOKEN=your_token_here" > .env
+# Optional for summaries:
+echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
 
-# Run
 python run_bot.py
+```
+
+Or with dev extras:
+
+```bash
+pip install -e '.[dev,ai]'
+pytest                  # 96 tests
+ruff check spot_bot     # lint
+mypy spot_bot           # type-check
 ```
 
 ### Docker
@@ -156,12 +218,24 @@ docker build -t tez-news-bot .
 docker run -e BOT_TOKEN=your_token_here tez-news-bot
 ```
 
-### Railway (recommended for 24/7)
+### Railway (24/7)
 
 1. Push to GitHub
 2. Connect repo on railway.app
-3. Add `BOT_TOKEN` environment variable
+3. Add `BOT_TOKEN` env var (and optionally `ANTHROPIC_API_KEY`)
 4. Auto-deploys on every push
+
+## Environment
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `BOT_TOKEN` | yes | Telegram bot token from @BotFather |
+| `ANTHROPIC_API_KEY` | for /summarize | Enables Claude summaries |
+| `ANTHROPIC_MODEL` | no (default claude-haiku-4-5) | Override Claude model id (e.g. `claude-sonnet-4-5`) |
+| `LOG_LEVEL` | no (default INFO) | DEBUG / INFO / WARNING / ERROR |
+| `LOG_FORMAT` | no (default text) | `text` or `json` |
+| `SPOT_LOG_DIR` | no (default ./logs) | Where to write rotating logs |
+| `SPOT_DB_PATH` | no | Override SQLite path (default spot_bot.db) |
 
 ## Dependencies
 
@@ -169,29 +243,30 @@ docker run -e BOT_TOKEN=your_token_here tez-news-bot
 |---|---|
 | `playwright` | Headless Chromium for scraping Telegram + spot.uz |
 | `beautifulsoup4` + `lxml` | HTML parsing and content extraction |
-| `python-telegram-bot[job-queue]` | Telegram Bot API + scheduled jobs (APScheduler) |
-| `edge-tts` | Free Microsoft TTS — same voices as Edge Read Aloud |
-| `python-dotenv` | Load BOT_TOKEN from .env |
+| `python-telegram-bot[job-queue]` | Bot API + scheduled jobs |
+| `edge-tts` | Free Microsoft TTS |
+| `aiosqlite` | Async SQLite for per-user state |
+| `python-dotenv` | Load env vars from .env |
+| `anthropic` (optional) | Claude API for summaries |
 
-## Settings Persistence
+## Testing & CI
 
-Stored in `spot_bot/user_settings.json` with atomic writes (temp file + `os.replace`):
+- **96 tests** cover text + HTML cleaners, date parsing, inclusive-range regression, retry decorator, error classification, storage layer (migrations, per-user isolation, filters, favorites, op-log), AI summarization with mocked Anthropic, and a **full end-to-end pipeline integration test with mocked Playwright** that exercises scrape → fetch → cache → filter → per-user-isolation without touching a real browser.
+- **Lint**: `ruff check` clean across `spot_bot` and `tests`.
+- **Types**: `mypy` clean; strict mode on storage, pipeline, cleaners, errors, utils, logging.
+- **CI**: `.github/workflows/ci.yml` runs lint + type-check + tests on Python 3.11 and 3.12.
 
-```json
-{
-  "voice": "ru-RU-DmitryNeural",
-  "channel_url": "https://t.me/s/spotuz",
-  "speed": "+0%",
-  "language": "en",
-  "auto_scrape": {
-    "enabled": true,
-    "interval_days": 3,
-    "chat_id": 123456789,
-    "count": 50,
-    "include_audio": true,
-    "combined_audio": true
-  }
-}
+## Storage & Data
+
+SQLite at `spot_bot.db` with these tables (see `spot_bot/storage/db.py` for migrations):
+
+```
+users              Per-user settings (voice, speed, lang, channel_url, last_scraped_id, auto_scrape_json)
+article_cache      URL-keyed parsed articles, 24h TTL
+keyword_filters    (user_id, keyword, mode=include|exclude)
+favorites          (user_id, post_id, title, body, saved_at)
+operation_log      Scrape audit trail (op_id, user_id, status, counts, errors)
+summary_cache      (post_id, lang) → AI summary, created lazily if summaries used
 ```
 
 ## Languages and Voices
@@ -204,8 +279,7 @@ The bot interface and TTS audio support three languages:
 | Russian (`ru`) | Full | dmitry, svetlana |
 | Uzbek (`uz`) | Full | madina, sardor |
 
-Switch language: `/lang uz`
-Switch voice: `/voice sardor`
+Switch language: `/lang uz` · Switch voice: `/voice sardor`
 
 Audio announcements in combined MP3 files use the selected language:
 - EN: "Next article: [title]"
@@ -214,21 +288,10 @@ Audio announcements in combined MP3 files use the selected language:
 
 ## Future Improvements
 
-### High Value
-- **AI summaries** — Claude/GPT to summarize articles, add original value
-- **Article translation** — Auto-translate article content between languages
-- **Incremental scraping** — Track last-read post ID, only fetch new articles
-- **Article caching** — Store fetched articles by URL, avoid re-fetching
-
-### Medium Value
-- **Structured logging** — Replace print() with proper logging, add Sentry
-- **Health monitoring** — Uptime checks, error rate alerting
-- **Multi-user settings** — Per-user preferences instead of global JSON
-- **Keyword filtering** — Only deliver articles matching specific topics
-
 ### Nice to Have
-- **Streaming audio delivery** — Send articles as audio while others still generating
-- **Web dashboard** — Settings UI instead of chat commands
-- **RSS feed output** — Generate RSS from scraped articles
-- **Database storage** — PostgreSQL/SQLite for articles, analytics, search
-- **Telegram Stars monetization** — Premium features via in-app payments
+- **Article translation** — auto-translate article body between languages (currently only UI + summaries are localized)
+- **Streaming audio delivery** — send articles as TTS finishes instead of waiting for the full batch
+- **Web dashboard** — settings UI and favorites browser outside Telegram
+- **RSS feed output** — generate per-user RSS from saved articles or scraped content
+- **Full-text search** — search scraped article cache and favorites
+- **Telegram Stars monetization** — premium features via in-app payments

@@ -3,7 +3,11 @@
 Supports English (en), Russian (ru), and Uzbek (uz).
 """
 
-_STRINGS = {
+from __future__ import annotations
+
+from typing import Any
+
+_STRINGS: dict[str, dict[str, str]] = {
     # /start help text
     "start_help": {
         "en": (
@@ -28,7 +32,17 @@ _STRINGS = {
             "/speed fast — Change audio speed\n"
             "/lang en — Change language (en/ru/uz)\n"
             "/channel — Show/change source channel\n"
-            "/status — Show current settings"
+            "/status — Show current settings\n\n"
+            "Discovery:\n"
+            "/latest — Scrape only posts newer than last time\n"
+            "/filter add <word> — Keep only articles with this word\n"
+            "/filter exclude <word> — Drop articles with this word\n"
+            "/filter list — Show current filters\n"
+            "/save <post_id> — Bookmark an article\n"
+            "/favorites — List bookmarked articles\n"
+            "/history — Show recent scrape history\n\n"
+            "AI (needs ANTHROPIC_API_KEY):\n"
+            "/scrape 50 summary — Add a 2-sentence AI summary to each article"
         ),
         "ru": (
             "Spot News Bot\n\n"
@@ -52,7 +66,15 @@ _STRINGS = {
             "/speed fast — Скорость аудио\n"
             "/lang ru — Сменить язык (en/ru/uz)\n"
             "/channel — Канал-источник\n"
-            "/status — Текущие настройки"
+            "/status — Текущие настройки\n\n"
+            "Открытие:\n"
+            "/latest — Получить только новые посты\n"
+            "/filter add <слово> — Оставить только статьи со словом\n"
+            "/filter exclude <слово> — Исключить статьи со словом\n"
+            "/filter list — Показать фильтры\n"
+            "/save <post_id> — Сохранить статью\n"
+            "/favorites — Избранные статьи\n"
+            "/history — Недавняя история"
         ),
         "uz": (
             "Spot News Bot\n\n"
@@ -76,7 +98,15 @@ _STRINGS = {
             "/speed fast — Audio tezligi\n"
             "/lang uz — Tilni o'zgartirish (en/ru/uz)\n"
             "/channel — Manba kanali\n"
-            "/status — Joriy sozlamalar"
+            "/status — Joriy sozlamalar\n\n"
+            "Kashfiyot:\n"
+            "/latest — Faqat yangi postlar\n"
+            "/filter add <so'z> — Faqat shu so'z bor maqolalar\n"
+            "/filter exclude <so'z> — Shu so'z bo'lsa tashlab yubor\n"
+            "/filter list — Filtrlarni ko'rsatish\n"
+            "/save <post_id> — Maqolani saqlash\n"
+            "/favorites — Sevimli maqolalar\n"
+            "/history — Yaqinlarda bajarilganlar"
         ),
     },
 
@@ -194,6 +224,21 @@ _STRINGS = {
         "en": "Error: {e}",
         "ru": "Ошибка: {e}",
         "uz": "Xato: {e}",
+    },
+    "error_generic": {
+        "en": "Something went wrong. Please try again.",
+        "ru": "Что-то пошло не так. Пожалуйста, попробуйте ещё раз.",
+        "uz": "Xatolik yuz berdi. Qayta urinib ko‘ring.",
+    },
+    "error_timeout": {
+        "en": "Timed out. The source site may be slow — try again in a minute.",
+        "ru": "Время ожидания истекло. Источник может быть перегружен — попробуйте через минуту.",
+        "uz": "Vaqt tugadi. Manba sayti sekin bo‘lishi mumkin — bir daqiqadan keyin qayta urinib ko‘ring.",
+    },
+    "error_network": {
+        "en": "Network error. Check your connection and try again.",
+        "ru": "Ошибка сети. Проверьте соединение и попробуйте снова.",
+        "uz": "Tarmoq xatosi. Ulanishni tekshirib, qayta urinib ko‘ring.",
     },
 
     # /cancel
@@ -429,10 +474,123 @@ _STRINGS = {
         "ru": "Без названия",
         "uz": "Sarlavhasiz",
     },
+
+    # ---- Phase 5: new features ----
+
+    # /latest (incremental scraping)
+    "latest_no_previous": {
+        "en": "No previous scrape found. Use /scrape first to anchor a starting point.",
+        "ru": "Нет предыдущего запуска. Используйте /scrape, чтобы задать начальную точку.",
+        "uz": "Oldingi yuklab olish topilmadi. Boshlang‘ich nuqtani belgilash uchun avval /scrape dan foydalaning.",
+    },
+    "latest_nothing_new": {
+        "en": "Nothing new since post #{last_id}.",
+        "ru": "Нет новых постов после #{last_id}.",
+        "uz": "#{last_id} dan keyin yangi post yo‘q.",
+    },
+    "latest_scraping": {
+        "en": "Looking for posts newer than #{last_id}...",
+        "ru": "Ищу посты новее #{last_id}...",
+        "uz": "#{last_id} dan yangi postlar qidirilmoqda...",
+    },
+
+    # /filter
+    "filter_usage": {
+        "en": (
+            "/filter add <keyword> — only deliver articles containing it\n"
+            "/filter exclude <keyword> — drop articles containing it\n"
+            "/filter remove <keyword> — remove the rule\n"
+            "/filter list — show all rules\n"
+            "/filter clear — remove all rules"
+        ),
+        "ru": (
+            "/filter add <слово> — оставлять только статьи со словом\n"
+            "/filter exclude <слово> — исключать статьи со словом\n"
+            "/filter remove <слово> — убрать правило\n"
+            "/filter list — показать правила\n"
+            "/filter clear — удалить все"
+        ),
+        "uz": (
+            "/filter add <so‘z> — faqat shu so‘z bor maqolalar\n"
+            "/filter exclude <so‘z> — shu so‘z bo‘lsa tashlab yubor\n"
+            "/filter remove <so‘z> — qoidani olib tashlash\n"
+            "/filter list — qoidalarni ko‘rsatish\n"
+            "/filter clear — hammasini o‘chirish"
+        ),
+    },
+    "filter_added": {
+        "en": "Filter added: {mode} \"{keyword}\"",
+        "ru": "Фильтр добавлен: {mode} \"{keyword}\"",
+        "uz": "Filter qo‘shildi: {mode} \"{keyword}\"",
+    },
+    "filter_removed": {
+        "en": "Removed {n} filter(s).",
+        "ru": "Удалено фильтров: {n}.",
+        "uz": "{n} ta filter o‘chirildi.",
+    },
+    "filter_empty": {
+        "en": "No filters set. Use /filter add <word> or /filter exclude <word>.",
+        "ru": "Фильтров нет. /filter add <слово> или /filter exclude <слово>.",
+        "uz": "Filtrlar yo‘q. /filter add <so‘z> yoki /filter exclude <so‘z>.",
+    },
+    "filter_list_header": {
+        "en": "Your filters:",
+        "ru": "Ваши фильтры:",
+        "uz": "Sizning filtrlaringiz:",
+    },
+    "filter_cleared": {
+        "en": "All filters removed.",
+        "ru": "Все фильтры удалены.",
+        "uz": "Hamma filtrlar o‘chirildi.",
+    },
+    "filter_dropped_note": {
+        "en": "{n} article(s) dropped by your filters.",
+        "ru": "Скрыто фильтрами: {n}.",
+        "uz": "Filtrlar {n} ta maqolani yashirdi.",
+    },
+
+    # /save /favorites
+    "save_usage": {
+        "en": "Usage: /save <post_id> (e.g. /save 34950)",
+        "ru": "Использование: /save <post_id> (например /save 34950)",
+        "uz": "Foydalanish: /save <post_id> (masalan /save 34950)",
+    },
+    "save_added": {
+        "en": "⭐ Saved post #{post_id} to favorites.",
+        "ru": "⭐ Пост #{post_id} добавлен в избранное.",
+        "uz": "⭐ #{post_id} sevimlilarga qo‘shildi.",
+    },
+    "save_removed": {
+        "en": "Post #{post_id} removed from favorites.",
+        "ru": "Пост #{post_id} убран из избранного.",
+        "uz": "#{post_id} sevimlilardan olib tashlandi.",
+    },
+    "favorites_empty": {
+        "en": "You have no saved articles yet. Use /save <post_id> after a scrape.",
+        "ru": "Избранное пусто. Используйте /save <post_id> после /scrape.",
+        "uz": "Sevimlilar bo‘sh. /scrape dan keyin /save <post_id> ishlating.",
+    },
+    "favorites_header": {
+        "en": "⭐ Your saved articles ({n}):",
+        "ru": "⭐ Избранные статьи ({n}):",
+        "uz": "⭐ Sevimli maqolalar ({n}):",
+    },
+
+    # /history
+    "history_empty": {
+        "en": "No recent operations.",
+        "ru": "Нет недавних операций.",
+        "uz": "Yaqinda bajarilgan operatsiyalar yo‘q.",
+    },
+    "history_header": {
+        "en": "Last {n} operations:",
+        "ru": "Последние операции ({n}):",
+        "uz": "Oxirgi {n} ta operatsiya:",
+    },
 }
 
 
-def t(key, lang="en", **kwargs):
+def t(key: str, lang: str = "en", **kwargs: Any) -> str:
     """Get a translated string.
 
     Args:

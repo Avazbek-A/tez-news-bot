@@ -1,40 +1,79 @@
+from __future__ import annotations
+
 import asyncio
+import logging
 import os
 import tempfile
 import time
-import edge_tts
-from spot_bot.config import DEFAULT_VOICE, TTS_RATE, MAX_CONCURRENT_TTS
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-# Timeout per article (seconds). Most articles finish in 5-15s.
-PER_ARTICLE_TIMEOUT = 60
+import edge_tts
+
+from spot_bot.config import (
+    DEFAULT_VOICE,
+    MAX_CONCURRENT_TTS,
+    TTS_BASE_TIMEOUT_S,
+    TTS_MAX_TIMEOUT_S,
+    TTS_PER_1000_CHARS_S,
+    TTS_RATE,
+)
+
+logger = logging.getLogger(__name__)
+
+Article = dict[str, Any]
+ProgressCallback = Callable[[str], Awaitable[None]]
+# (article, audio_path-or-None)
+AudioResult = tuple[Article, str | None]
+
+
+def _adaptive_timeout(text: str) -> float:
+    """Scale timeout with text length so long articles don't false-timeout."""
+    per_char = (len(text) / 1000.0) * TTS_PER_1000_CHARS_S
+    return min(TTS_BASE_TIMEOUT_S + per_char, TTS_MAX_TIMEOUT_S)
 
 # Minimum interval between progress reports (seconds)
 _PROGRESS_DEBOUNCE = 2.0
 
 
-async def generate_audio(text, output_path, voice=DEFAULT_VOICE, rate=TTS_RATE):
+async def generate_audio(
+    text: str,
+    output_path: str,
+    voice: str = DEFAULT_VOICE,
+    rate: str = TTS_RATE,
+) -> str | None:
     """Generate an MP3 file from text using Microsoft Edge TTS.
 
-    Returns the output_path if successful, None on failure.
+    Returns the output_path if successful, None on failure. Timeout scales
+    with text length (see _adaptive_timeout).
     """
     if not text or not text.strip():
         return None
+    timeout = _adaptive_timeout(text)
     try:
         communicate = edge_tts.Communicate(text, voice, rate=rate)
-        await asyncio.wait_for(communicate.save(output_path), timeout=PER_ARTICLE_TIMEOUT)
+        await asyncio.wait_for(communicate.save(output_path), timeout=timeout)
         return output_path
     except asyncio.TimeoutError:
-        print(f"TTS timeout after {PER_ARTICLE_TIMEOUT}s, skipping")
+        logger.warning(
+            "TTS timeout after %.1fs (text=%d chars), skipping",
+            timeout, len(text),
+        )
         if os.path.exists(output_path):
             os.remove(output_path)
         return None
     except Exception as e:
-        print(f"TTS error: {e}")
+        logger.warning("TTS error: %s", e, exc_info=True)
         return None
 
 
-async def generate_batch(articles, voice=DEFAULT_VOICE, rate=TTS_RATE,
-                         cancel_event=None, progress_callback=None):
+async def generate_batch(
+    articles: list[Article],
+    voice: str = DEFAULT_VOICE,
+    rate: str = TTS_RATE,
+    cancel_event: asyncio.Event | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> list[AudioResult]:
     """Generate MP3 files for a list of articles using parallel workers.
 
     Uses MAX_CONCURRENT_TTS (default 4) parallel TTS calls for ~4x speedup.
@@ -49,7 +88,7 @@ async def generate_batch(articles, voice=DEFAULT_VOICE, rate=TTS_RATE,
     Returns:
         List of (article, audio_path) tuples. audio_path is None if TTS failed.
     """
-    async def _report(msg):
+    async def _report(msg: str) -> None:
         if progress_callback:
             await progress_callback(msg)
 
@@ -59,7 +98,7 @@ async def generate_batch(articles, voice=DEFAULT_VOICE, rate=TTS_RATE,
     last_report_time = 0.0
     total = len(articles)
 
-    async def _generate_one(i, article):
+    async def _generate_one(i: int, article: Article) -> AudioResult:
         nonlocal completed, last_report_time
 
         if cancel_event and cancel_event.is_set():
@@ -102,7 +141,9 @@ async def generate_batch(articles, voice=DEFAULT_VOICE, rate=TTS_RATE,
     return list(results)
 
 
-def combine_audio_files(results, output_path):
+def combine_audio_files(
+    results: list[AudioResult], output_path: str,
+) -> str | None:
     """Concatenate individual MP3 files into one combined file.
 
     Binary MP3 concatenation works for CBR files (which edge-tts produces).
@@ -126,9 +167,14 @@ def combine_audio_files(results, output_path):
     return output_path
 
 
-async def combine_audio_with_announcements(results, output_path, voice=DEFAULT_VOICE,
-                                           rate=TTS_RATE, announcement_prefix="Next article:",
-                                           untitled_text="Untitled"):
+async def combine_audio_with_announcements(
+    results: list[AudioResult],
+    output_path: str,
+    voice: str = DEFAULT_VOICE,
+    rate: str = TTS_RATE,
+    announcement_prefix: str = "Next article:",
+    untitled_text: str = "Untitled",
+) -> str | None:
     """Combine MP3 files with title announcements interleaved.
 
     Generates a short TTS clip saying "[prefix] [title]" before
@@ -151,7 +197,7 @@ async def combine_audio_with_announcements(results, output_path, voice=DEFAULT_V
         return None
 
     tmpdir = os.path.dirname(output_path)
-    announcement_paths = []
+    announcement_paths: list[str | None] = []
 
     try:
         # Generate announcement clips
@@ -165,27 +211,31 @@ async def combine_audio_with_announcements(results, output_path, voice=DEFAULT_V
         # Binary concatenation: announcement + article audio
         with open(output_path, "wb") as out:
             for i, (_, audio_path) in enumerate(valid):
-                ann_path = announcement_paths[i]
-                if ann_path and os.path.exists(ann_path):
-                    with open(ann_path, "rb") as f:
+                ann = announcement_paths[i]
+                if ann and os.path.exists(ann):
+                    with open(ann, "rb") as f:
                         out.write(f.read())
+                assert audio_path is not None  # `valid` filter guarantees this
                 with open(audio_path, "rb") as f:
                     out.write(f.read())
 
         return output_path
 
     finally:
-        for ann_path in announcement_paths:
-            if ann_path and os.path.exists(ann_path):
+        for ann in announcement_paths:
+            if ann and os.path.exists(ann):
                 try:
-                    os.remove(ann_path)
+                    os.remove(ann)
                 except OSError:
                     pass
 
 
-def cleanup_audio_files(results, combined_path=None):
+def cleanup_audio_files(
+    results: list[AudioResult],
+    combined_path: str | None = None,
+) -> None:
     """Remove temporary audio files after sending."""
-    dirs_to_clean = set()
+    dirs_to_clean: set[str] = set()
     for _, audio_path in results:
         if audio_path and os.path.exists(audio_path):
             dirs_to_clean.add(os.path.dirname(audio_path))

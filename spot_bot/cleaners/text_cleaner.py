@@ -1,5 +1,9 @@
-import re
+from __future__ import annotations
 
+import re
+from typing import Any
+
+Article = dict[str, Any]
 
 # Patterns for lines that are pure noise
 _DIGIT_LINE = re.compile(r"^\d[\s\d]*$")
@@ -34,7 +38,7 @@ _PROMO_PATTERNS = [
 _SENTENCE_ENDERS = frozenset(".!?")
 
 
-def clean_article(text):
+def clean_article(text: str | None) -> str:
     """Clean a single article's text for reading and TTS consumption.
 
     Removes noise, promotional footers, cross-references, URLs, and
@@ -43,8 +47,9 @@ def clean_article(text):
     if not text:
         return ""
 
+    original_text = text
     paragraphs = text.split("\n\n")
-    cleaned = []
+    cleaned: list[str] = []
 
     for para in paragraphs:
         para = _clean_paragraph(para)
@@ -55,10 +60,21 @@ def clean_article(text):
     while cleaned and _is_footer_line(cleaned[-1]):
         cleaned.pop()
 
-    return "\n\n".join(cleaned)
+    result = "\n\n".join(cleaned)
+
+    # If cleaning removed everything but original had substantial text,
+    # return a minimally cleaned version instead of empty
+    if not result and len(original_text.strip()) > 50:
+        # Minimal cleaning: just strip URLs and normalize whitespace
+        minimal = _URL_PATTERN.sub("", original_text)
+        minimal = re.sub(r"\s+", " ", minimal).strip()
+        if len(minimal) > 10:
+            return minimal
+
+    return result
 
 
-def _clean_paragraph(text):
+def _clean_paragraph(text: str) -> str:
     """Clean a single paragraph. Returns empty string if it should be removed."""
     text = text.strip()
     if not text:
@@ -115,7 +131,7 @@ def _clean_paragraph(text):
     return text
 
 
-def _is_footer_line(text):
+def _is_footer_line(text: str) -> bool:
     """Check if a line looks like a promotional/social footer."""
     text = text.strip()
     if _FOOTER_PREFIX.match(text):
@@ -126,7 +142,7 @@ def _is_footer_line(text):
     return False
 
 
-def clean_batch(articles):
+def clean_batch(articles: list[Article]) -> list[Article]:
     """Clean a list of article dicts in place. Each dict should have 'body' key.
 
     Returns the same list with cleaned body text.
