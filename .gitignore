@@ -2,7 +2,22 @@
 __pycache__/
 *.pyc
 *.mp3
+.DS_Store
 spot_bot/user_settings.json
 .claude/
 Spot_News_*
 tez_news_bot_logo.png
+
+# Build / test / lint artifacts
+logs/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+spot_bot.db
