@@ -4,8 +4,25 @@ services:
     restart: unless-stopped
     environment:
       - BOT_TOKEN=${BOT_TOKEN}
+      # Optional for /scrape ... summary:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-}
+      # Set LOG_FORMAT=json for structured logs
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - LOG_FORMAT=${LOG_FORMAT:-text}
+      # SQLite lives in the mounted data volume so it survives rebuilds.
+      - SPOT_DB_PATH=/app/data/spot_bot.db
+      - SPOT_LOG_DIR=/app/logs
     volumes:
-      - settings:/app/spot_bot
+      # Persist only DATA, not CODE:
+      #  - the SQLite DB (per-user settings, favorites, filters, cache, op log)
+      #  - rotating log files
+      # The old layout persisted /app/spot_bot as a named volume, which
+      # shadowed the image's Python code and blocked updates. Do NOT
+      # revert to that.
+      - db:/app/data
+      - logs:/app/logs
 
 volumes:
-  settings:
+  db:
+  logs:
