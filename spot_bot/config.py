@@ -1,4 +1,5 @@
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -80,6 +81,28 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0.0.0 Safari/537.36"
 )
+
+# Timeouts (all in milliseconds unless noted)
+PLAYWRIGHT_NAV_TIMEOUT_MS = 30_000          # spot.uz article navigation
+PLAYWRIGHT_SELECTOR_TIMEOUT_MS = 5_000      # wait for .contentBox etc.
+PLAYWRIGHT_CHANNEL_TIMEOUT_MS = 10_000      # wait for Telegram messages to load
+SCROLL_WAIT_MS = 2_000                      # pause between scrolls during pagination
+SCROLL_BACK_PX = 500                        # pixels to scroll back when stalled
+
+# Retry / stall behaviour
+STALL_THRESHOLD = 3                         # scroll rounds with no new posts before giving up
+RETRY_MAX_ATTEMPTS = 3
+RETRY_INITIAL_BACKOFF_S = 1.0               # exponential: 1s, 2s, 4s
+
+# TTS timeouts (seconds). generate_audio uses adaptive = base + per-char factor.
+TTS_BASE_TIMEOUT_S = 30
+TTS_PER_1000_CHARS_S = 10
+TTS_MAX_TIMEOUT_S = 180
+
+# Delivery rate limits (seconds between sends)
+DELIVERY_TEXT_DELAY_S = 0.3
+DELIVERY_IMAGE_DELAY_S = 0.3
+DELIVERY_AUDIO_DELAY_S = 0.5
 
 # Telegram limits
 TELEGRAM_MESSAGE_LIMIT = 4096
