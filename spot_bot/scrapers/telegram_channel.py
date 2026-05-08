@@ -1,7 +1,44 @@
 import asyncio
+import re
 from datetime import datetime, timedelta
+from html import unescape
 from playwright.async_api import async_playwright
 from spot_bot.config import CHANNEL_URL
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_WS_RE = re.compile(r"\s+")
+_PUNCT_RE = re.compile(r"[^\w\s]", flags=re.UNICODE)
+
+
+def _normalize_for_match(text):
+    """Lowercase, strip HTML tags, collapse whitespace, drop punctuation."""
+    if not text:
+        return ""
+    plain = unescape(_TAG_RE.sub(" ", text))
+    plain = _WS_RE.sub(" ", plain).strip().lower()
+    plain = _PUNCT_RE.sub(" ", plain)
+    plain = _WS_RE.sub(" ", plain).strip()
+    return plain
+
+
+def _post_match_text(post_data):
+    """Build a single normalized string from post HTML for substring matching.
+
+    The Telegram channel post text usually starts with the article headline
+    or a short summary, so matching against the full post body covers both
+    title and lead paragraphs.
+    """
+    return _normalize_for_match(post_data.get("text_html", ""))
+
+
+def _post_first_line(post_data):
+    """Return a short (≤120 chars) human-readable preview of the post text."""
+    if not post_data:
+        return ""
+    plain = unescape(_TAG_RE.sub(" ", post_data.get("text_html", "")))
+    plain = _WS_RE.sub(" ", plain).strip()
+    return plain[:120] + ("…" if len(plain) > 120 else "")
 
 
 def _parse_date(date_str):
@@ -153,7 +190,7 @@ async def _get_latest_post_id(page):
 
 
 async def scrape_latest(count, channel_url=CHANNEL_URL, cancel_event=None,
-                        progress_callback=None):
+                        progress_callback=None, chronological=False):
     """Scrape the latest `count` posts from a Telegram channel.
 
     Args:
@@ -222,13 +259,15 @@ async def scrape_latest(count, channel_url=CHANNEL_URL, cancel_event=None,
         finally:
             await browser.close()
 
-    # Sort chronologically (oldest first) by post ID
-    captured_posts.sort(key=_post_sort_key)
+    # Sort by post ID. Default: newest first (descending).
+    # chronological=True flips to oldest first for reading order.
+    captured_posts.sort(key=_post_sort_key, reverse=not chronological)
     return captured_posts[:count]
 
 
 async def scrape_range(start_offset, end_offset, channel_url=CHANNEL_URL,
-                       cancel_event=None, progress_callback=None):
+                       cancel_event=None, progress_callback=None,
+                       chronological=False):
     """Scrape posts within an offset range from the latest.
 
     For example, scrape_range(2000, 1950) gets the 1950th-to-2000th
@@ -329,13 +368,147 @@ async def scrape_range(start_offset, end_offset, channel_url=CHANNEL_URL,
         finally:
             await browser.close()
 
-    # Sort chronologically (oldest first) by post ID
-    captured_posts.sort(key=_post_sort_key)
+    captured_posts.sort(key=_post_sort_key, reverse=not chronological)
     return captured_posts[:needed]
 
 
+async def find_post_id_by_title(title_query, channel_url=CHANNEL_URL,
+                                max_search=2000, cancel_event=None,
+                                progress_callback=None):
+    """Find the most recent post whose text contains `title_query`.
+
+    Walks the public Telegram channel page, scrolling to load older messages,
+    and returns the first (most recent) post where the normalized post text
+    contains the normalized query as a substring. Case-insensitive.
+
+    Args:
+        title_query: Title or unique fragment to match.
+        channel_url: Public Telegram channel URL.
+        max_search: Hard cap on number of posts scanned before giving up.
+        cancel_event: asyncio.Event to signal cancellation.
+        progress_callback: Optional async callable(str) for status updates.
+
+    Returns:
+        Tuple (numeric_id, matched_post_data) on success, or (None, None) if
+        no match is found within max_search posts.
+    """
+    async def _report(msg):
+        if progress_callback:
+            await progress_callback(msg)
+
+    needle = _normalize_for_match(title_query)
+    if not needle:
+        return (None, None)
+
+    processed_ids = set()
+    scanned = 0
+
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        try:
+            context = await browser.new_context()
+            page = await context.new_page()
+
+            await _report(f"Searching for article: {title_query[:60]}...")
+            await page.goto(channel_url)
+            await page.wait_for_selector(".tgme_widget_message", state="visible")
+
+            stall_count = 0
+
+            while scanned < max_search:
+                if cancel_event and cancel_event.is_set():
+                    break
+
+                batch = await _extract_posts_from_page(page, processed_ids)
+
+                # Scan newest-first within the batch so the most recent match
+                # wins when multiple candidates share the page.
+                ordered = sorted(
+                    batch, key=lambda pair: pair[1] or 0, reverse=True
+                )
+                for post_data, numeric_id in ordered:
+                    scanned += 1
+                    haystack = _post_match_text(post_data)
+                    if needle in haystack:
+                        return (numeric_id, post_data)
+                    if scanned >= max_search:
+                        break
+
+                if scanned >= max_search:
+                    break
+
+                await _report(
+                    f"Searched {scanned}/{max_search} posts, scrolling..."
+                )
+
+                # Scroll up to load older messages
+                await page.evaluate("window.scrollTo(0, 0)")
+                await page.wait_for_timeout(2000)
+
+                if not batch:
+                    stall_count += 1
+                    if stall_count >= 3:
+                        await _report(
+                            f"No more posts to search (scanned {scanned})."
+                        )
+                        break
+                    await page.evaluate("window.scrollTo(0, -500)")
+                    await page.wait_for_timeout(2000)
+                else:
+                    stall_count = 0
+        finally:
+            await browser.close()
+
+    return (None, None)
+
+
+async def scrape_forward_from(anchor_id, count, channel_url=CHANNEL_URL,
+                              cancel_event=None, progress_callback=None,
+                              chronological=False):
+    """Scrape `count` posts starting at `anchor_id` and moving forward in time.
+
+    The anchor post is included as the oldest item in the batch; the next
+    `count - 1` newer posts follow. To handle deleted/missing post IDs, this
+    over-requests by ~30% from the underlying ID-range scraper, then trims
+    to `count` after sorting ascending by ID.
+
+    Args:
+        anchor_id: Numeric post ID to anchor on (included in batch).
+        count: Total number of posts to return.
+        channel_url: Public Telegram channel URL.
+        cancel_event: asyncio.Event to signal cancellation.
+        progress_callback: Optional async callable(str) for status updates.
+        chronological: If True, return ascending (oldest first); else descending.
+
+    Returns:
+        List of post dicts (length up to `count`).
+    """
+    if count <= 0:
+        return []
+
+    over_count = max(count + 5, int(count * 1.3))
+    start_id = anchor_id + over_count
+    end_id = anchor_id
+
+    posts = await scrape_by_post_ids(
+        start_id, end_id,
+        channel_url=channel_url,
+        cancel_event=cancel_event,
+        progress_callback=progress_callback,
+        chronological=True,  # collect in canonical order, re-sort below
+    )
+
+    # Trim to exactly `count` posts ascending from the anchor, then apply
+    # the caller's preferred direction.
+    posts.sort(key=_post_sort_key)  # ascending (oldest first)
+    posts = posts[:count]
+    posts.sort(key=_post_sort_key, reverse=not chronological)
+    return posts
+
+
 async def scrape_by_post_ids(start_id, end_id, channel_url=CHANNEL_URL,
-                             cancel_event=None, progress_callback=None):
+                             cancel_event=None, progress_callback=None,
+                             chronological=False):
     """Scrape posts by actual Telegram post IDs (permanent, never change).
 
     Unlike scrape_range() which uses offsets from latest, this uses
@@ -424,6 +597,5 @@ async def scrape_by_post_ids(start_id, end_id, channel_url=CHANNEL_URL,
         finally:
             await browser.close()
 
-    # Sort chronologically (oldest first) by post ID
-    captured_posts.sort(key=_post_sort_key)
+    captured_posts.sort(key=_post_sort_key, reverse=not chronological)
     return captured_posts[:needed]

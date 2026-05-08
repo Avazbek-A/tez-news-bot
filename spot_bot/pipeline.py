@@ -1,6 +1,13 @@
 import asyncio
 from dataclasses import dataclass, field
-from spot_bot.scrapers.telegram_channel import scrape_latest, scrape_range, scrape_by_post_ids
+from spot_bot.scrapers.telegram_channel import (
+    scrape_latest,
+    scrape_range,
+    scrape_by_post_ids,
+    find_post_id_by_title,
+    scrape_forward_from,
+    _post_first_line,
+)
 from spot_bot.scrapers.article_fetcher import fetch_articles
 from spot_bot.cleaners.text_cleaner import clean_batch
 from spot_bot.audio.tts_generator import generate_batch, cleanup_audio_files
@@ -12,6 +19,10 @@ from spot_bot.settings import get_setting
 class PipelineResult:
     articles: list = field(default_factory=list)
     audio_results: list = field(default_factory=list)
+    # Populated when from_title resolution succeeds; useful for status messages.
+    matched_title_preview: str = ""
+    # True when from_title was provided but no matching post was found.
+    title_not_found: bool = False
 
 
 def _check_cancelled(cancel_event):
@@ -22,10 +33,12 @@ def _check_cancelled(cancel_event):
 
 async def run_pipeline(count=None, start_offset=None, end_offset=None,
                        start_post_id=None, end_post_id=None,
+                       from_title=None, from_count=None,
+                       title_search_depth=2000,
                        include_audio=False, include_images=False,
                        voice=DEFAULT_VOICE, rate=TTS_RATE,
                        channel_url=None, cancel_event=None,
-                       progress_callback=None):
+                       progress_callback=None, chronological=False):
     """Run the full scrape -> fetch -> clean -> audio pipeline.
 
     Args:
@@ -53,16 +66,46 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
     if channel_url is None:
         channel_url = get_setting("channel_url")
 
-    # 1. Scrape posts — post IDs, offset range, or latest
+    matched_title_preview = ""
+
+    # 1. Scrape posts — title-anchored, post IDs, offset range, or latest
     _check_cancelled(cancel_event)
 
-    if start_post_id is not None and end_post_id is not None:
+    if from_title:
+        # Resolve title to a post ID, then scrape forward from there.
+        target_count = from_count or count or 50
+        await _report(f"Searching for: {from_title[:60]}...")
+        anchor_id, anchor_post = await find_post_id_by_title(
+            from_title,
+            channel_url=channel_url,
+            max_search=title_search_depth,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
+        )
+        if anchor_id is None:
+            return PipelineResult(title_not_found=True)
+
+        preview = _post_first_line(anchor_post) if anchor_post else ""
+        await _report(
+            f"Found post #{anchor_id}. Scraping next {target_count}..."
+        )
+        posts = await scrape_forward_from(
+            anchor_id, target_count,
+            channel_url=channel_url,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
+            chronological=chronological,
+        )
+        # Stash the preview for the caller's status message
+        matched_title_preview = preview
+    elif start_post_id is not None and end_post_id is not None:
         await _report(f"Scraping posts #{start_post_id} to #{end_post_id}...")
         posts = await scrape_by_post_ids(
             start_post_id, end_post_id,
             channel_url=channel_url,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
+            chronological=chronological,
         )
     elif start_offset is not None and end_offset is not None:
         needed = start_offset - end_offset
@@ -72,6 +115,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             channel_url=channel_url,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
+            chronological=chronological,
         )
     else:
         count = count or 20
@@ -81,12 +125,13 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             channel_url=channel_url,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
+            chronological=chronological,
         )
 
     await _report(f"Found {len(posts)} posts.")
 
     if not posts:
-        return PipelineResult()
+        return PipelineResult(matched_title_preview=matched_title_preview)
 
     # 2. Fetch full article content
     _check_cancelled(cancel_event)
@@ -106,7 +151,10 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
     articles = [a for a in articles if a.get("body", "").strip()]
     await _report(f"Cleaned {len(articles)} articles ready.")
 
-    result = PipelineResult(articles=articles)
+    result = PipelineResult(
+        articles=articles,
+        matched_title_preview=matched_title_preview,
+    )
 
     # 4. Generate audio (optional)
     if include_audio and articles:

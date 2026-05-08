@@ -15,7 +15,8 @@ _STRINGS = {
             "/scrape 50 audio combined — .txt + one combined MP3\n"
             "/scrape 35808-35758 — Posts by ID (stable)\n"
             "/scrape 2000-1950 — Posts by offset from latest\n"
-            "/scrape 50 images — .txt + article images\n\n"
+            "/scrape 50 images — .txt + article images\n"
+            "/scrape from \"<title>\" 50 — Anchor on a title; scrape 50 forward\n\n"
             "Auto-scrape:\n"
             "/auto — Show auto-scrape status\n"
             "/auto on 3 — Enable every 3 days\n"
@@ -27,6 +28,7 @@ _STRINGS = {
             "/voice andrew — Change TTS voice\n"
             "/speed fast — Change audio speed\n"
             "/lang en — Change language (en/ru/uz)\n"
+            "/order newest|oldest — Default delivery order\n"
             "/channel — Show/change source channel\n"
             "/status — Show current settings"
         ),
@@ -39,7 +41,8 @@ _STRINGS = {
             "/scrape 50 audio combined — .txt + один общий MP3\n"
             "/scrape 35808-35758 — По ID постов (стабильно)\n"
             "/scrape 2000-1950 — По смещению от последнего\n"
-            "/scrape 50 images — .txt + изображения статей\n\n"
+            "/scrape 50 images — .txt + изображения статей\n"
+            "/scrape from \"<заголовок>\" 50 — От заголовка вперёд на 50\n\n"
             "Авто-скрапинг:\n"
             "/auto — Статус авто-скрапинга\n"
             "/auto on 3 — Включить каждые 3 дня\n"
@@ -51,6 +54,7 @@ _STRINGS = {
             "/voice dmitry — Сменить голос TTS\n"
             "/speed fast — Скорость аудио\n"
             "/lang ru — Сменить язык (en/ru/uz)\n"
+            "/order newest|oldest — Порядок отправки по умолчанию\n"
             "/channel — Канал-источник\n"
             "/status — Текущие настройки"
         ),
@@ -63,7 +67,8 @@ _STRINGS = {
             "/scrape 50 audio combined — .txt + bitta umumiy MP3\n"
             "/scrape 35808-35758 — Post ID bo'yicha (barqaror)\n"
             "/scrape 2000-1950 — So'nggidan siljish bo'yicha\n"
-            "/scrape 50 images — .txt + maqola rasmlari\n\n"
+            "/scrape 50 images — .txt + maqola rasmlari\n"
+            "/scrape from \"<sarlavha>\" 50 — Sarlavhadan oldinga 50 ta\n\n"
             "Avto-skraping:\n"
             "/auto — Avto-skraping holati\n"
             "/auto on 3 — Har 3 kunda yoqish\n"
@@ -75,6 +80,7 @@ _STRINGS = {
             "/voice sardor — TTS ovozini o'zgartirish\n"
             "/speed fast — Audio tezligi\n"
             "/lang uz — Tilni o'zgartirish (en/ru/uz)\n"
+            "/order newest|oldest — Standart yetkazib berish tartibi\n"
             "/channel — Manba kanali\n"
             "/status — Joriy sozlamalar"
         ),
@@ -124,6 +130,26 @@ _STRINGS = {
         "en": "No articles found.",
         "ru": "Статьи не найдены.",
         "uz": "Maqolalar topilmadi.",
+    },
+    "from_title_quotes": {
+        "en": "Mismatched quotes. Use: /scrape from \"<title>\" 50",
+        "ru": "Кавычки не закрыты. Используйте: /scrape from \"<заголовок>\" 50",
+        "uz": "Qo'shtirnoqlar yopilmagan. Foydalaning: /scrape from \"<sarlavha>\" 50",
+    },
+    "from_title_missing": {
+        "en": "Missing title. Use: /scrape from \"<title>\" 50",
+        "ru": "Не указан заголовок. Используйте: /scrape from \"<заголовок>\" 50",
+        "uz": "Sarlavha ko'rsatilmagan. Foydalaning: /scrape from \"<sarlavha>\" 50",
+    },
+    "from_title_not_found": {
+        "en": "No article found matching: {title}",
+        "ru": "Не найдено статьи по запросу: {title}",
+        "uz": "So'rov bo'yicha maqola topilmadi: {title}",
+    },
+    "from_title_found": {
+        "en": "Found: {preview}\nScraping forward...",
+        "ru": "Найдено: {preview}\nСбор продолжается...",
+        "uz": "Topildi: {preview}\nYig'ish davom etmoqda...",
     },
     "sending_articles": {
         "en": "Sending {count} articles...",
@@ -416,6 +442,41 @@ _STRINGS = {
         "en": "Language set to: English",
         "ru": "Язык изменён: Русский",
         "uz": "Til o'rnatildi: O'zbek",
+    },
+
+    # /order
+    "order_current": {
+        "en": (
+            "Current order: {order}\n\n"
+            "Usage:\n"
+            "/order newest — Newest articles first (default)\n"
+            "/order oldest — Oldest articles first (chronological reading)\n\n"
+            "One-off override on /scrape: add 'oldest' or 'newest' as a flag."
+        ),
+        "ru": (
+            "Текущий порядок: {order}\n\n"
+            "Использование:\n"
+            "/order newest — Сначала новые (по умолчанию)\n"
+            "/order oldest — Сначала старые (хронологическое чтение)\n\n"
+            "Разовое переопределение для /scrape: добавьте флаг 'oldest' или 'newest'."
+        ),
+        "uz": (
+            "Joriy tartib: {order}\n\n"
+            "Foydalanish:\n"
+            "/order newest — Avval yangilari (standart)\n"
+            "/order oldest — Avval eskilari (xronologik o'qish)\n\n"
+            "/scrape uchun bir martalik o'zgartirish: 'oldest' yoki 'newest' bayrog'ini qo'shing."
+        ),
+    },
+    "order_unknown": {
+        "en": "Unknown order '{name}'. Use 'newest' or 'oldest'.",
+        "ru": "Неизвестный порядок '{name}'. Используйте 'newest' или 'oldest'.",
+        "uz": "Noma'lum tartib '{name}'. 'newest' yoki 'oldest' ishlating.",
+    },
+    "order_set": {
+        "en": "Order set to: {order}",
+        "ru": "Порядок изменён: {order}",
+        "uz": "Tartib o'rnatildi: {order}",
     },
 
     # Audio announcements

@@ -1,6 +1,7 @@
 import asyncio
 import os
 import re
+import shlex
 import tempfile
 from telegram import Update
 from telegram.ext import (
@@ -99,10 +100,33 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     end_offset = None
     start_post_id = None
     end_post_id = None
+    from_title = None
+    from_count = None
     include_audio = False
     send_as_file = True
     include_images = False
     combined_audio = False
+    chronological = (get_setting("chronological_order") == "oldest_first")
+
+    # Special syntax: /scrape from "<title>" [count] [flags...]
+    # We re-parse the raw message text with shlex so the quoted title stays
+    # intact regardless of whitespace inside it.
+    raw_text = update.message.text or ""
+    cmd_match = re.match(r"^/[A-Za-z_]+(?:@\w+)?\s*", raw_text)
+    raw_args_str = raw_text[cmd_match.end():] if cmd_match else raw_text
+    if raw_args_str.lstrip().lower().startswith("from"):
+        try:
+            tokens = shlex.split(raw_args_str)
+        except ValueError:
+            await update.message.reply_text(t("from_title_quotes", lang))
+            return
+        if tokens and tokens[0].lower() == "from":
+            if len(tokens) < 2 or not tokens[1].strip():
+                await update.message.reply_text(t("from_title_missing", lang))
+                return
+            from_title = tokens[1]
+            # Everything after the title is flags / count
+            args = tokens[2:]
 
     for arg in args:
         range_match = _RANGE_PATTERN.match(arg)
@@ -133,7 +157,10 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     return
         elif arg.isdigit():
-            count = min(int(arg), MAX_SCRAPE_COUNT)
+            if from_title:
+                from_count = min(int(arg), MAX_SCRAPE_COUNT)
+            else:
+                count = min(int(arg), MAX_SCRAPE_COUNT)
         elif arg.lower() == "audio":
             include_audio = True
         elif arg.lower() in ("file", "txt"):
@@ -144,14 +171,24 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             include_images = True
         elif arg.lower() == "combined":
             combined_audio = True
+        elif arg.lower() in ("--oldest-first", "oldest-first", "oldest"):
+            chronological = True
+        elif arg.lower() in ("--newest-first", "newest-first", "newest"):
+            chronological = False
 
     voice = _get_voice()
     rate = _get_speed()
     use_range = start_offset is not None and end_offset is not None
     use_post_ids = start_post_id is not None and end_post_id is not None
+    use_from_title = from_title is not None
+    if use_from_title and from_count is None:
+        from_count = 50
 
     # Build description for status message
-    if use_post_ids:
+    if use_from_title:
+        title_preview = from_title if len(from_title) <= 40 else from_title[:40] + "…"
+        desc = f'from "{title_preview}" × {from_count}'
+    elif use_post_ids:
         desc = f"posts #{end_post_id}-#{start_post_id}"
     elif use_range:
         desc = f"{start_offset}-{end_offset}"
@@ -181,11 +218,14 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             cancel_event=cancel_event,
             use_range=use_range,
             use_post_ids=use_post_ids,
+            use_from_title=use_from_title,
             count=count,
             start_offset=start_offset,
             end_offset=end_offset,
             start_post_id=start_post_id,
             end_post_id=end_post_id,
+            from_title=from_title,
+            from_count=from_count,
             include_audio=include_audio,
             include_images=include_images,
             send_as_file=send_as_file,
@@ -193,6 +233,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             voice=voice,
             rate=rate,
             lang=lang,
+            chronological=chronological,
         )
     )
 
@@ -200,12 +241,15 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _run_job(*, chat_id, bot, status_msg, cancel_event,
-                   use_range, use_post_ids=False, count=20,
+                   use_range, use_post_ids=False, use_from_title=False,
+                   count=20,
                    start_offset=None, end_offset=None,
                    start_post_id=None, end_post_id=None,
+                   from_title=None, from_count=None,
                    include_audio=False, include_images=False,
                    send_as_file=True, combined_audio=False,
-                   voice=None, rate=TTS_RATE, lang="en"):
+                   voice=None, rate=TTS_RATE, lang="en",
+                   chronological=False):
     """Background task that runs the full pipeline + delivery."""
     result = None
     combined_path = None
@@ -225,8 +269,12 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             rate=rate,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
+            chronological=chronological,
         )
-        if use_post_ids:
+        if use_from_title:
+            pipeline_kwargs["from_title"] = from_title
+            pipeline_kwargs["from_count"] = from_count or 50
+        elif use_post_ids:
             pipeline_kwargs["start_post_id"] = start_post_id
             pipeline_kwargs["end_post_id"] = end_post_id
         elif use_range:
@@ -237,9 +285,26 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
 
         result = await run_pipeline(**pipeline_kwargs)
 
+        if use_from_title and result.title_not_found:
+            await status_msg.edit_text(
+                t("from_title_not_found", lang, title=from_title)
+            )
+            return
+
         if not result.articles:
             await status_msg.edit_text(t("no_articles", lang))
             return
+
+        # When title-anchored, prepend a "found" line to the status message
+        # so the user sees which article anchored the batch.
+        if use_from_title and result.matched_title_preview:
+            try:
+                await status_msg.edit_text(
+                    t("from_title_found", lang,
+                      preview=result.matched_title_preview)
+                )
+            except Exception:
+                pass
 
         await status_msg.edit_text(
             t("sending_articles", lang, count=len(result.articles))
@@ -450,6 +515,33 @@ async def cmd_lang(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# /order — default chronological order for delivery
+# ---------------------------------------------------------------------------
+
+async def cmd_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    lang = _get_lang()
+
+    current = get_setting("chronological_order") or "newest_first"
+
+    if not args:
+        await update.message.reply_text(t("order_current", lang, order=current))
+        return
+
+    choice = args[0].lower()
+    if choice in ("newest", "newest_first", "new"):
+        new_value = "newest_first"
+    elif choice in ("oldest", "oldest_first", "old", "chronological"):
+        new_value = "oldest_first"
+    else:
+        await update.message.reply_text(t("order_unknown", lang, name=choice))
+        return
+
+    set_setting("chronological_order", new_value)
+    await update.message.reply_text(t("order_set", lang, order=new_value))
+
+
+# ---------------------------------------------------------------------------
 # /channel
 # ---------------------------------------------------------------------------
 
@@ -570,6 +662,7 @@ async def _auto_scrape_callback(context: ContextTypes.DEFAULT_TYPE):
     cancel_event = asyncio.Event()
     voice = _get_voice()
     rate = _get_speed()
+    chronological = (get_setting("chronological_order") == "oldest_first")
 
     task = asyncio.create_task(
         _run_job(
@@ -588,6 +681,7 @@ async def _auto_scrape_callback(context: ContextTypes.DEFAULT_TYPE):
             voice=voice,
             rate=rate,
             lang=lang,
+            chronological=chronological,
         )
     )
     _running_jobs[chat_id] = {"task": task, "cancel_event": cancel_event}
@@ -717,6 +811,7 @@ def create_app():
     app.add_handler(CommandHandler("speed", cmd_speed))
     app.add_handler(CommandHandler("lang", cmd_lang))
     app.add_handler(CommandHandler("channel", cmd_channel))
+    app.add_handler(CommandHandler("order", cmd_order))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("auto", cmd_auto))
 
