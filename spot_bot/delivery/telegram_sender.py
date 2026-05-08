@@ -4,6 +4,18 @@ import tempfile
 from telegram import Bot
 from telegram.constants import ParseMode
 from spot_bot.config import TELEGRAM_MESSAGE_LIMIT
+from spot_bot.audio.voice import (
+    convert_mp3_to_opus,
+    concat_mp3_to_opus,
+    get_audio_duration,
+    split_results_for_voice,
+    ffmpeg_available,
+    VOICE_MAX_DURATION_SECONDS,
+)
+
+
+# Telegram voice-message size cap from bots is 50MB (same as documents).
+_VOICE_MAX_BYTES = 50 * 1024 * 1024
 
 
 async def send_articles_as_text(bot: Bot, chat_id: int, articles: list):
@@ -136,62 +148,232 @@ async def send_article_images(bot: Bot, chat_id: int, articles: list):
     return sent
 
 
-async def send_combined_audio(bot: Bot, chat_id: int, combined_path: str,
-                              article_count: int):
-    """Send a single combined MP3 file as a Telegram document.
+async def send_voice_messages(bot: Bot, chat_id: int, results: list):
+    """Send each article's audio as a Telegram voice message.
 
-    Uses send_document (not send_audio) since combined files can be large
-    and don't map to a single track title.
-    """
-    filename = f"Spot_News_{article_count}_articles.mp3"
-    file_size_mb = os.path.getsize(combined_path) / (1024 * 1024)
-
-    if file_size_mb > 50:
-        # Telegram bot document limit is 50MB
-        return False
-
-    try:
-        with open(combined_path, "rb") as f:
-            await bot.send_document(
-                chat_id=chat_id,
-                document=f,
-                filename=filename,
-            )
-        return True
-    except Exception as e:
-        print(f"Error sending combined audio: {e}")
-        return False
-
-
-async def send_audio_files(bot: Bot, chat_id: int, results: list):
-    """Send generated audio files as Telegram audio messages.
+    Voice messages give native mobile playback speed control (1x/1.5x/2x).
+    The TTS pipeline produces MP3; we convert each to OGG/Opus via ffmpeg
+    before sending. Each voice message is capped at VOICE_MAX_DURATION_SECONDS;
+    articles longer than that get split across multiple voice messages.
 
     Args:
         bot: Telegram Bot instance.
         chat_id: Chat to send to.
         results: List of (article, audio_path) tuples from TTS generator.
+
+    Returns:
+        Number of voice messages successfully sent.
     """
+    if not ffmpeg_available():
+        print("ffmpeg not on PATH — cannot send voice messages.")
+        return 0
+
     sent = 0
-    for article, audio_path in results:
-        if not audio_path or not os.path.exists(audio_path):
+    for article, mp3_path in results:
+        if not mp3_path or not os.path.exists(mp3_path):
             continue
 
-        title = article.get("title", "News")
-        if not title:
-            title = article.get("body", "")[:60] + "..."
+        # Convert mp3 -> ogg/opus next to the mp3 (cleanup_audio_files
+        # removes the parent dir, so this gets cleaned automatically).
+        ogg_path = mp3_path[:-4] + ".ogg" if mp3_path.endswith(".mp3") \
+            else mp3_path + ".ogg"
+        out_path = await convert_mp3_to_opus(mp3_path, ogg_path)
+        if not out_path:
+            print(f"Voice convert failed for {mp3_path}, skipping")
+            continue
+
+        duration = await get_audio_duration(out_path)
+        # Within-article splitting if a single article exceeds the cap
+        # (very rare — would be a 60+ min interview).
+        if duration > VOICE_MAX_DURATION_SECONDS:
+            print(
+                f"Article voice exceeds {VOICE_MAX_DURATION_SECONDS}s "
+                f"({duration:.0f}s); splitting"
+            )
+            sub_count = await _send_voice_split(
+                bot, chat_id, out_path, article,
+                total_duration=duration,
+            )
+            sent += sub_count
+            try:
+                os.remove(out_path)
+            except OSError:
+                pass
+            continue
 
         try:
-            with open(audio_path, "rb") as audio_file:
-                await bot.send_audio(
+            file_size = os.path.getsize(out_path)
+            if file_size > _VOICE_MAX_BYTES:
+                print(f"Voice file too large ({file_size} bytes), skipping")
+                continue
+
+            with open(out_path, "rb") as f:
+                await bot.send_voice(
                     chat_id=chat_id,
-                    audio=audio_file,
-                    title=title[:64],
-                    performer="Spot News",
+                    voice=f,
+                    duration=int(duration) if duration > 0 else None,
                 )
             sent += 1
-            await asyncio.sleep(0.5)  # Rate limiting for audio
+            await asyncio.sleep(0.5)
         except Exception as e:
-            print(f"Error sending audio: {e}")
+            print(f"Error sending voice message: {e}")
+        finally:
+            try:
+                os.remove(out_path)
+            except OSError:
+                pass
+
+    return sent
+
+
+async def send_combined_voice(bot: Bot, chat_id: int, results: list,
+                              status_callback=None):
+    """Send TTS results as one or more combined voice messages, splitting
+    at VOICE_MAX_DURATION_SECONDS boundaries so each message stays within
+    Telegram's 1-hour voice-message cap.
+
+    Args:
+        bot: Telegram Bot instance.
+        chat_id: Chat to send to.
+        results: List of (article, mp3_path) tuples from TTS generator.
+        status_callback: Optional async callable(str) for progress updates.
+
+    Returns:
+        Number of underlying article-mp3s successfully delivered.
+    """
+    if not ffmpeg_available():
+        print("ffmpeg not on PATH — cannot send combined voice.")
+        return 0
+
+    async def _report(msg):
+        if status_callback:
+            try:
+                await status_callback(msg)
+            except Exception:
+                pass
+
+    batches = await split_results_for_voice(results)
+    if not batches:
+        return 0
+
+    total_articles = sum(1 for _, p in results if p and os.path.exists(p))
+    delivered = 0
+    tmpdir = tempfile.mkdtemp(prefix="spot_voice_")
+
+    try:
+        for i, batch in enumerate(batches):
+            mp3_paths = [p for _, p in batch if p and os.path.exists(p)]
+            if not mp3_paths:
+                continue
+
+            await _report(
+                f"Encoding voice part {i + 1}/{len(batches)}..."
+            )
+
+            ogg_path = os.path.join(tmpdir, f"combined_{i + 1:02d}.ogg")
+            out = await concat_mp3_to_opus(mp3_paths, ogg_path)
+            if not out:
+                continue
+
+            duration = await get_audio_duration(out)
+            if os.path.getsize(out) > _VOICE_MAX_BYTES:
+                print(
+                    f"Combined voice part {i + 1} exceeds size cap, skipping"
+                )
+                try:
+                    os.remove(out)
+                except OSError:
+                    pass
+                continue
+
+            try:
+                await _report(
+                    f"Sending voice part {i + 1}/{len(batches)}..."
+                )
+                with open(out, "rb") as f:
+                    await bot.send_voice(
+                        chat_id=chat_id,
+                        voice=f,
+                        duration=int(duration) if duration > 0 else None,
+                        caption=(
+                            f"Part {i + 1}/{len(batches)} "
+                            f"({len(mp3_paths)} articles)"
+                            if len(batches) > 1 else None
+                        ),
+                    )
+                delivered += len(mp3_paths)
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                print(f"Error sending combined voice part {i + 1}: {e}")
+            finally:
+                try:
+                    os.remove(out)
+                except OSError:
+                    pass
+    finally:
+        try:
+            os.rmdir(tmpdir)
+        except OSError:
+            pass
+
+    return delivered
+
+
+async def _send_voice_split(bot, chat_id, ogg_path, article, total_duration):
+    """Split an over-long voice file into ≤VOICE_MAX_DURATION_SECONDS chunks
+    via ffmpeg, then send each chunk."""
+    chunk_dir = tempfile.mkdtemp(prefix="spot_voice_split_")
+    sent = 0
+    try:
+        chunk_seconds = VOICE_MAX_DURATION_SECONDS
+        n_chunks = int(total_duration // chunk_seconds) + 1
+        for idx in range(n_chunks):
+            start = idx * chunk_seconds
+            chunk_path = os.path.join(chunk_dir, f"chunk_{idx:02d}.ogg")
+            proc = await asyncio.create_subprocess_exec(
+                "ffmpeg", "-y",
+                "-i", ogg_path,
+                "-ss", str(start),
+                "-t", str(chunk_seconds),
+                "-c", "copy",
+                chunk_path,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            try:
+                await asyncio.wait_for(proc.communicate(), timeout=120)
+            except asyncio.TimeoutError:
+                proc.kill()
+                continue
+
+            if not os.path.exists(chunk_path) or os.path.getsize(chunk_path) == 0:
+                continue
+            if os.path.getsize(chunk_path) > _VOICE_MAX_BYTES:
+                continue
+
+            try:
+                dur = await get_audio_duration(chunk_path)
+                with open(chunk_path, "rb") as f:
+                    await bot.send_voice(
+                        chat_id=chat_id,
+                        voice=f,
+                        duration=int(dur) if dur > 0 else None,
+                        caption=f"Part {idx + 1}/{n_chunks}",
+                    )
+                sent += 1
+                await asyncio.sleep(0.5)
+            except Exception as e:
+                print(f"Error sending split-voice part: {e}")
+    finally:
+        for f in os.listdir(chunk_dir):
+            try:
+                os.remove(os.path.join(chunk_dir, f))
+            except OSError:
+                pass
+        try:
+            os.rmdir(chunk_dir)
+        except OSError:
+            pass
 
     return sent
 

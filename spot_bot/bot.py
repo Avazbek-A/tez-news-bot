@@ -1,8 +1,6 @@
 import asyncio
-import os
 import re
 import shlex
-import tempfile
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -31,14 +29,10 @@ from spot_bot.delivery.telegram_sender import (
     send_articles_as_text,
     send_articles_as_file,
     send_article_images,
-    send_audio_files,
-    send_combined_audio,
+    send_voice_messages,
+    send_combined_voice,
 )
-from spot_bot.audio.tts_generator import (
-    combine_audio_files,
-    combine_audio_with_announcements,
-    cleanup_audio_files,
-)
+from spot_bot.audio.tts_generator import cleanup_audio_files
 from spot_bot.scrapers.telegram_channel import (
     find_post_id_by_title,
     _post_first_line,
@@ -268,7 +262,6 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                    chronological=False):
     """Background task that runs the full pipeline + delivery."""
     result = None
-    combined_path = None
 
     try:
         async def progress_callback(text):
@@ -391,40 +384,26 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                 bot, chat_id, result.articles
             )
 
-        # Send audio if requested
+        # Send audio as Telegram voice messages (mobile gets native speed
+        # control, waveform, and 1x/1.5x/2x playback). MP3 -> OGG/Opus
+        # conversion happens inside the senders via ffmpeg.
         audio_sent = 0
         if include_audio and result.audio_results:
+            async def _voice_status(text):
+                try:
+                    await status_msg.edit_text(text)
+                except Exception:
+                    pass
+
             if combined_audio:
-                # Combine into one MP3 with title announcements
                 await status_msg.edit_text(t("combining_audio", lang))
-                tmpdir = tempfile.mkdtemp(prefix="spot_combined_")
-                combined_path = os.path.join(tmpdir, "combined.mp3")
-                combined_path = await combine_audio_with_announcements(
-                    result.audio_results, combined_path, voice, rate,
-                    announcement_prefix=t("announcement_prefix", lang),
-                    untitled_text=t("untitled", lang),
+                audio_sent = await send_combined_voice(
+                    bot, chat_id, result.audio_results,
+                    status_callback=_voice_status,
                 )
-                if combined_path:
-                    await status_msg.edit_text(t("sending_combined", lang))
-                    success = await send_combined_audio(
-                        bot, chat_id, combined_path,
-                        len(result.articles),
-                    )
-                    if success:
-                        audio_sent = sum(
-                            1 for _, p in result.audio_results if p
-                        )
-                    else:
-                        # File too large — fall back to individual files
-                        await status_msg.edit_text(
-                            t("combined_too_large", lang)
-                        )
-                        audio_sent = await send_audio_files(
-                            bot, chat_id, result.audio_results
-                        )
             else:
                 await status_msg.edit_text(t("sending_audio", lang))
-                audio_sent = await send_audio_files(
+                audio_sent = await send_voice_messages(
                     bot, chat_id, result.audio_results
                 )
 
@@ -479,7 +458,7 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
     finally:
         # Cleanup
         if result and result.audio_results:
-            cleanup_audio_files(result.audio_results, combined_path)
+            cleanup_audio_files(result.audio_results, None)
         _running_jobs.pop(chat_id, None)
 
 
