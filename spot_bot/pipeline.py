@@ -36,6 +36,7 @@ def _check_cancelled(cancel_event):
 async def run_pipeline(count=None, start_offset=None, end_offset=None,
                        start_post_id=None, end_post_id=None,
                        from_title=None, from_count=None,
+                       forward_anchor_id=None,
                        title_search_depth=2000,
                        include_audio=False, include_images=False,
                        voice=DEFAULT_VOICE, rate=TTS_RATE,
@@ -74,8 +75,24 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
     # 1. Scrape posts — title-anchored, post IDs, offset range, or latest
     _check_cancelled(cancel_event)
 
-    if from_title:
+    if forward_anchor_id is not None:
+        # Bot layer already resolved a post ID (e.g. via user-confirmed
+        # title search) — scrape forward without re-resolving.
+        target_count = from_count or count or 50
+        await _report(
+            f"Scraping {target_count} posts forward from #{forward_anchor_id}..."
+        )
+        posts = await scrape_forward_from(
+            forward_anchor_id, target_count,
+            channel_url=channel_url,
+            cancel_event=cancel_event,
+            progress_callback=progress_callback,
+            chronological=chronological,
+        )
+        matched_post_id = forward_anchor_id
+    elif from_title:
         # Resolve title to a post ID, then scrape forward from there.
+        # (No confirmation step; used by non-interactive callers.)
         target_count = from_count or count or 50
         await _report(f"Searching for: {from_title[:60]}...")
         anchor_id, anchor_post = await find_post_id_by_title(

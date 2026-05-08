@@ -3,9 +3,10 @@ import os
 import re
 import shlex
 import tempfile
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
 )
@@ -38,12 +39,27 @@ from spot_bot.audio.tts_generator import (
     combine_audio_with_announcements,
     cleanup_audio_files,
 )
+from spot_bot.scrapers.telegram_channel import (
+    find_post_id_by_title,
+    _post_first_line,
+)
 
 
 _RANGE_PATTERN = re.compile(r"^(\d+)-(\d+)$")
 
 # Active jobs per chat — allows /cancel to work
 _running_jobs = {}
+
+# Pending confirmation requests for title-anchored scrapes.
+# Keyed by chat_id. Value: dict with keys:
+#   "event": asyncio.Event signaling user has decided
+#   "decision": dict with key "yes" set to True/False
+#   "msg_id": id of the message holding the inline buttons (so we can
+#             remove the buttons once the decision is made)
+_pending_confirmations = {}
+
+# How long to wait for the user to click Confirm/Cancel (seconds)
+CONFIRM_TIMEOUT = 300
 
 
 # ---------------------------------------------------------------------------
@@ -272,8 +288,55 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             chronological=chronological,
         )
         if use_from_title:
-            pipeline_kwargs["from_title"] = from_title
-            pipeline_kwargs["from_count"] = from_count or 50
+            # Two-stage flow: resolve title at the bot layer, ask user to
+            # confirm via inline buttons, then call the pipeline with the
+            # confirmed anchor ID via the post-ID forward path.
+            target_count = from_count or 50
+            await status_msg.edit_text(
+                t("from_title_searching", lang, title=from_title)
+            )
+
+            channel_url = get_setting("channel_url")
+            anchor_id, anchor_post = await find_post_id_by_title(
+                from_title,
+                channel_url=channel_url,
+                max_search=2000,
+                cancel_event=cancel_event,
+                progress_callback=progress_callback,
+            )
+            if anchor_id is None:
+                await status_msg.edit_text(
+                    t("from_title_not_found", lang, title=from_title)
+                )
+                return
+
+            preview = _post_first_line(anchor_post) if anchor_post else ""
+            date_str = (anchor_post or {}).get("date", "?")
+
+            confirmed = await _ask_anchor_confirmation(
+                bot=bot,
+                chat_id=chat_id,
+                anchor_id=anchor_id,
+                preview=preview,
+                date_str=date_str,
+                count=target_count,
+                lang=lang,
+                cancel_event=cancel_event,
+            )
+            if confirmed is None:
+                # Timed out
+                await status_msg.edit_text(t("confirm_timeout", lang))
+                return
+            if not confirmed:
+                await status_msg.edit_text(t("confirm_cancelled", lang))
+                return
+
+            # User confirmed — proceed with the post-ID forward scrape.
+            await status_msg.edit_text(
+                t("from_title_proceeding", lang, count=target_count)
+            )
+            pipeline_kwargs["forward_anchor_id"] = anchor_id
+            pipeline_kwargs["from_count"] = target_count
         elif use_post_ids:
             pipeline_kwargs["start_post_id"] = start_post_id
             pipeline_kwargs["end_post_id"] = end_post_id
@@ -431,6 +494,114 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         if result and result.audio_results:
             cleanup_audio_files(result.audio_results, combined_path)
         _running_jobs.pop(chat_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Anchor confirmation (used by /scrape from "<title>" mode)
+# ---------------------------------------------------------------------------
+
+async def _ask_anchor_confirmation(*, bot, chat_id, anchor_id, preview,
+                                   date_str, count, lang, cancel_event):
+    """Send an inline-keyboard confirmation message and wait for user input.
+
+    Returns True if confirmed, False if cancelled, or None if timed out.
+    """
+    confirm_event = asyncio.Event()
+    decision = {"yes": False}
+
+    keyboard = InlineKeyboardMarkup([[
+        InlineKeyboardButton(
+            t("confirm_yes_btn", lang),
+            callback_data="anchor_confirm_yes",
+        ),
+        InlineKeyboardButton(
+            t("confirm_no_btn", lang),
+            callback_data="anchor_confirm_no",
+        ),
+    ]])
+
+    confirm_msg = await bot.send_message(
+        chat_id,
+        t("confirm_anchor", lang,
+          anchor_id=anchor_id,
+          preview=preview or "—",
+          date=date_str,
+          count=count),
+        reply_markup=keyboard,
+    )
+
+    _pending_confirmations[chat_id] = {
+        "event": confirm_event,
+        "decision": decision,
+        "msg_id": confirm_msg.message_id,
+    }
+
+    try:
+        wait_task = asyncio.create_task(confirm_event.wait())
+        cancel_task = None
+        if cancel_event is not None:
+            async def _cancel_watcher():
+                while not cancel_event.is_set():
+                    await asyncio.sleep(0.5)
+            cancel_task = asyncio.create_task(_cancel_watcher())
+
+        tasks = [wait_task] + ([cancel_task] if cancel_task else [])
+        done, pending = await asyncio.wait(
+            tasks,
+            timeout=CONFIRM_TIMEOUT,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for t_ in pending:
+            t_.cancel()
+
+        if cancel_event is not None and cancel_event.is_set():
+            return False
+        if not confirm_event.is_set():
+            # Timed out — strip the buttons so the user knows it expired
+            try:
+                await bot.edit_message_reply_markup(
+                    chat_id=chat_id,
+                    message_id=confirm_msg.message_id,
+                    reply_markup=None,
+                )
+            except Exception:
+                pass
+            return None
+
+        return decision["yes"]
+    finally:
+        _pending_confirmations.pop(chat_id, None)
+
+
+async def _handle_anchor_confirmation(update: Update,
+                                      context: ContextTypes.DEFAULT_TYPE):
+    """CallbackQueryHandler: routes Confirm/Cancel button clicks back to
+    the waiting _ask_anchor_confirmation coroutine."""
+    query = update.callback_query
+    chat_id = query.message.chat_id if query.message else update.effective_chat.id
+    data = query.data or ""
+
+    pending = _pending_confirmations.get(chat_id)
+    if not pending:
+        # Stale button (job already ended) — acknowledge and silently strip
+        try:
+            await query.answer()
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return
+
+    decision_yes = data == "anchor_confirm_yes"
+    pending["decision"]["yes"] = decision_yes
+    pending["event"].set()
+
+    # Acknowledge the button press and remove the keyboard so the user
+    # can't double-click.
+    try:
+        await query.answer()
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -839,5 +1010,9 @@ def create_app():
     app.add_handler(CommandHandler("order", cmd_order))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("auto", cmd_auto))
+    app.add_handler(CallbackQueryHandler(
+        _handle_anchor_confirmation,
+        pattern=r"^anchor_confirm_(yes|no)$",
+    ))
 
     return app

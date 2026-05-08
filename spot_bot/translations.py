@@ -186,6 +186,59 @@ _STRINGS = {
         "ru": "Якорь: пост #{anchor_id}\n{preview}",
         "uz": "Bog'lanish: post #{anchor_id}\n{preview}",
     },
+    "from_title_searching": {
+        "en": "Searching for: {title}\n(scanning up to 2000 recent posts)",
+        "ru": "Поиск: {title}\n(сканирую до 2000 последних постов)",
+        "uz": "Qidirilmoqda: {title}\n(so'nggi 2000 ta postgacha skanerlanadi)",
+    },
+    "from_title_proceeding": {
+        "en": "Confirmed. Scraping next {count} articles...",
+        "ru": "Подтверждено. Сбор следующих {count} статей...",
+        "uz": "Tasdiqlandi. Keyingi {count} ta maqola yig'ilmoqda...",
+    },
+    "confirm_anchor": {
+        "en": (
+            "Found this article — scrape forward from here?\n\n"
+            "Title: {preview}\n"
+            "Post ID: #{anchor_id}\n"
+            "Date: {date}\n"
+            "Will scrape: {count} articles starting from this one"
+        ),
+        "ru": (
+            "Найдена эта статья — собрать вперёд от неё?\n\n"
+            "Заголовок: {preview}\n"
+            "ID поста: #{anchor_id}\n"
+            "Дата: {date}\n"
+            "Будет собрано: {count} статей, начиная с этой"
+        ),
+        "uz": (
+            "Bu maqola topildi — shu joydan boshlab oldinga yig'ilsinmi?\n\n"
+            "Sarlavha: {preview}\n"
+            "Post ID: #{anchor_id}\n"
+            "Sana: {date}\n"
+            "Yig'iladi: shu maqoladan boshlab {count} ta"
+        ),
+    },
+    "confirm_yes_btn": {
+        "en": "✅ Confirm",
+        "ru": "✅ Подтвердить",
+        "uz": "✅ Tasdiqlash",
+    },
+    "confirm_no_btn": {
+        "en": "❌ Cancel",
+        "ru": "❌ Отмена",
+        "uz": "❌ Bekor qilish",
+    },
+    "confirm_cancelled": {
+        "en": "Cancelled. No articles scraped.",
+        "ru": "Отменено. Статьи не собраны.",
+        "uz": "Bekor qilindi. Maqolalar yig'ilmadi.",
+    },
+    "confirm_timeout": {
+        "en": "No response in 5 minutes. Cancelled.",
+        "ru": "Нет ответа за 5 минут. Отменено.",
+        "uz": "5 daqiqa ichida javob yo'q. Bekor qilindi.",
+    },
     "sending_articles": {
         "en": "Sending {count} articles...",
         "ru": "Отправка {count} статей...",
