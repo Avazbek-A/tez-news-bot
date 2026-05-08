@@ -95,9 +95,17 @@ def clean_html(html_content, base_url=""):
 
     text = "\n\n".join(cleaned)
 
-    # 9. Reject auth-walled stubs
-    if "Вы не авторизованы. Войдите на сайт" in text and len(text) < 500:
-        return headline, None, images
+    # 9. Reject only genuine auth-wall stubs.
+    # Earlier the threshold was <500 chars, which dropped long interview
+    # articles where boilerplate auth-wall text appears alongside real
+    # content that cleans down to under 500 chars. Strip the auth-wall
+    # sentence first, then reject only when nothing meaningful remains.
+    auth_wall_phrase = "Вы не авторизованы. Войдите на сайт"
+    if auth_wall_phrase in text:
+        text_without_authwall = text.replace(auth_wall_phrase, "").strip()
+        has_paragraphs = bool(body_elem.find("p"))
+        if len(text_without_authwall) < 50 and not has_paragraphs:
+            return headline, None, images
 
     return headline, text, images
 

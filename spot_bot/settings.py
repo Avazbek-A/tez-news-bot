@@ -16,6 +16,7 @@ _DEFAULTS = {
     "speed": TTS_RATE,
     "language": DEFAULT_LANGUAGE,
     "auto_scrape": None,
+    "chronological_order": "newest_first",
 }
 
 
