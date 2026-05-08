@@ -444,13 +444,12 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                 if pid and pid.isdigit():
                     post_ids.append(int(pid))
 
-        # In title-anchored mode, send the post ID range as a SEPARATE
-        # message at the end so it stays visible after the status message
-        # gets overwritten. In other modes, fold it into the status edit
-        # like before.
-        if post_ids and use_from_title:
-            await status_msg.edit_text(summary)
+        # Always show the final summary as the (overwritten) status message,
+        # then send the post ID range as a SEPARATE persistent message so
+        # the IDs stay visible in chat without having to open the .txt file.
+        await status_msg.edit_text(summary)
 
+        if post_ids:
             newest_id = max(post_ids)
             oldest_id = min(post_ids)
             range_size = newest_id - oldest_id
@@ -464,18 +463,6 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                 await bot.send_message(chat_id, range_msg)
             except Exception:
                 pass
-        else:
-            if post_ids:
-                newest_id = max(post_ids)
-                oldest_id = min(post_ids)
-                range_size = newest_id - oldest_id
-                summary += "\n" + t("posts_range", lang,
-                                    oldest=oldest_id, newest=newest_id)
-                if range_size > 0:
-                    summary += "\n" + t("next_batch", lang,
-                                        start=newest_id,
-                                        end=newest_id + range_size)
-            await status_msg.edit_text(summary)
 
     except asyncio.CancelledError:
         try:
