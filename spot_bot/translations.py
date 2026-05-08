@@ -181,6 +181,11 @@ _STRINGS = {
         "ru": "Найдено: {preview}\nСбор продолжается...",
         "uz": "Topildi: {preview}\nYig'ish davom etmoqda...",
     },
+    "from_title_anchor": {
+        "en": "Anchor: post #{anchor_id}\n{preview}",
+        "ru": "Якорь: пост #{anchor_id}\n{preview}",
+        "uz": "Bog'lanish: post #{anchor_id}\n{preview}",
+    },
     "sending_articles": {
         "en": "Sending {count} articles...",
         "ru": "Отправка {count} статей...",

@@ -21,6 +21,8 @@ class PipelineResult:
     audio_results: list = field(default_factory=list)
     # Populated when from_title resolution succeeds; useful for status messages.
     matched_title_preview: str = ""
+    # Numeric post ID of the anchor article when from_title resolved a match.
+    matched_post_id: int = 0
     # True when from_title was provided but no matching post was found.
     title_not_found: bool = False
 
@@ -67,6 +69,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
         channel_url = get_setting("channel_url")
 
     matched_title_preview = ""
+    matched_post_id = 0
 
     # 1. Scrape posts — title-anchored, post IDs, offset range, or latest
     _check_cancelled(cancel_event)
@@ -96,8 +99,9 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             progress_callback=progress_callback,
             chronological=chronological,
         )
-        # Stash the preview for the caller's status message
+        # Stash the preview + anchor ID for the caller's status messages
         matched_title_preview = preview
+        matched_post_id = anchor_id
     elif start_post_id is not None and end_post_id is not None:
         await _report(f"Scraping posts #{start_post_id} to #{end_post_id}...")
         posts = await scrape_by_post_ids(
@@ -131,7 +135,10 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
     await _report(f"Found {len(posts)} posts.")
 
     if not posts:
-        return PipelineResult(matched_title_preview=matched_title_preview)
+        return PipelineResult(
+            matched_title_preview=matched_title_preview,
+            matched_post_id=matched_post_id,
+        )
 
     # 2. Fetch full article content
     _check_cancelled(cancel_event)
@@ -154,6 +161,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
     result = PipelineResult(
         articles=articles,
         matched_title_preview=matched_title_preview,
+        matched_post_id=matched_post_id,
     )
 
     # 4. Generate audio (optional)
