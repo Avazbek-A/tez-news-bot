@@ -1,5 +1,6 @@
 import asyncio
 import os
+import re
 import tempfile
 import time
 import edge_tts
@@ -8,29 +9,196 @@ from spot_bot.config import DEFAULT_VOICE, TTS_RATE, MAX_CONCURRENT_TTS
 # Timeout per article (seconds). Most articles finish in 5-15s.
 PER_ARTICLE_TIMEOUT = 60
 
+# Long bodies (>TTS_CHUNK_CHAR_LIMIT chars) are split into chunks before TTS,
+# then binary-concatenated. Edge TTS's WebSocket connection becomes flaky on
+# very long inputs, so chunking is what keeps long interview-format articles
+# from being silently dropped from combined audio output.
+TTS_CHUNK_CHAR_LIMIT = 3000
+
+# Conservative TTS speed (chars/sec) for computing per-chunk timeouts.
+TTS_CHARS_PER_SECOND = 40
+
 # Minimum interval between progress reports (seconds)
 _PROGRESS_DEBOUNCE = 2.0
 
 
-async def generate_audio(text, output_path, voice=DEFAULT_VOICE, rate=TTS_RATE):
-    """Generate an MP3 file from text using Microsoft Edge TTS.
+def _split_text_into_chunks(text, limit=TTS_CHUNK_CHAR_LIMIT):
+    """Split long text into chunks <= `limit` chars at natural boundaries.
 
-    Returns the output_path if successful, None on failure.
+    Strategy (in order):
+      1. Pack paragraphs (split on \\n\\n) greedily into chunks.
+      2. If a single paragraph exceeds `limit`, split it on sentence
+         boundaries (. / ! / ? followed by whitespace).
+      3. If a single sentence still exceeds `limit`, split on whitespace
+         at the limit boundary as a last resort.
+
+    Returns a list of non-empty chunks.
     """
+    if not text:
+        return []
+
+    text = text.strip()
+    if not text:
+        return []
+    if len(text) <= limit:
+        return [text]
+
+    # Step 1: split on paragraph boundaries
+    paragraphs = [p.strip() for p in text.split("\n\n") if p.strip()]
+
+    # Pre-split any oversize paragraphs into sentences/words
+    pieces = []
+    for para in paragraphs:
+        if len(para) <= limit:
+            pieces.append(para)
+            continue
+
+        # Step 2: sentence split
+        sentences = re.split(r"(?<=[.!?])\s+", para)
+        for sent in sentences:
+            sent = sent.strip()
+            if not sent:
+                continue
+            if len(sent) <= limit:
+                pieces.append(sent)
+                continue
+
+            # Step 3: word-level fallback
+            words = sent.split()
+            buf = ""
+            for w in words:
+                candidate = (buf + " " + w).strip() if buf else w
+                if len(candidate) > limit and buf:
+                    pieces.append(buf)
+                    buf = w
+                else:
+                    buf = candidate
+            if buf:
+                pieces.append(buf)
+
+    # Greedily pack pieces into chunks <= limit, preserving boundaries.
+    chunks = []
+    buf = ""
+    for piece in pieces:
+        if not buf:
+            buf = piece
+            continue
+        candidate = buf + "\n\n" + piece
+        if len(candidate) <= limit:
+            buf = candidate
+        else:
+            chunks.append(buf)
+            buf = piece
+    if buf:
+        chunks.append(buf)
+
+    return [c for c in chunks if c.strip()]
+
+
+async def _tts_to_file(text, output_path, voice, rate, timeout):
+    """Single edge-tts call with timeout. Returns output_path or None."""
     if not text or not text.strip():
         return None
     try:
         communicate = edge_tts.Communicate(text, voice, rate=rate)
-        await asyncio.wait_for(communicate.save(output_path), timeout=PER_ARTICLE_TIMEOUT)
-        return output_path
+        await asyncio.wait_for(communicate.save(output_path), timeout=timeout)
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            return output_path
+        return None
     except asyncio.TimeoutError:
-        print(f"TTS timeout after {PER_ARTICLE_TIMEOUT}s, skipping")
+        print(f"TTS timeout after {timeout}s on {len(text)}-char chunk, skipping")
         if os.path.exists(output_path):
-            os.remove(output_path)
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
         return None
     except Exception as e:
         print(f"TTS error: {e}")
+        if os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
         return None
+
+
+async def generate_audio(text, output_path, voice=DEFAULT_VOICE, rate=TTS_RATE,
+                         cancel_event=None):
+    """Generate an MP3 file from text using Microsoft Edge TTS.
+
+    For texts <= TTS_CHUNK_CHAR_LIMIT chars: single TTS call (fast path).
+    For longer texts: split into chunks, generate each, binary-concat the
+    resulting MP3s into output_path. This prevents long interview-format
+    articles from timing out and being dropped from combined audio.
+
+    Returns the output_path if at least one chunk succeeded, None otherwise.
+    """
+    if not text or not text.strip():
+        return None
+
+    # Fast path — short text, behave exactly as before
+    if len(text) <= TTS_CHUNK_CHAR_LIMIT:
+        return await _tts_to_file(text, output_path, voice, rate,
+                                  PER_ARTICLE_TIMEOUT)
+
+    # Long path — chunk, generate per-chunk, binary-concat
+    chunks = _split_text_into_chunks(text)
+    if not chunks:
+        return None
+
+    out_dir = os.path.dirname(output_path) or "."
+    chunk_paths = []
+    successes = 0
+
+    try:
+        for i, chunk in enumerate(chunks):
+            if cancel_event and cancel_event.is_set():
+                break
+
+            chunk_path = os.path.join(
+                out_dir,
+                f".{os.path.basename(output_path)}.chunk_{i:03d}.mp3",
+            )
+            timeout = max(
+                PER_ARTICLE_TIMEOUT,
+                len(chunk) // TTS_CHARS_PER_SECOND + 15,
+            )
+            result = await _tts_to_file(chunk, chunk_path, voice, rate, timeout)
+            if result:
+                chunk_paths.append(chunk_path)
+                successes += 1
+            else:
+                print(
+                    f"TTS chunk {i + 1}/{len(chunks)} failed "
+                    f"({len(chunk)} chars), continuing"
+                )
+
+        if not chunk_paths:
+            return None
+
+        # Binary-concat chunk MP3s into the final output_path.
+        # edge-tts produces concat-safe CBR streams (same property already
+        # exploited by combine_audio_files below).
+        with open(output_path, "wb") as out:
+            for p in chunk_paths:
+                with open(p, "rb") as f:
+                    out.write(f.read())
+
+        if successes < len(chunks):
+            print(
+                f"TTS partial: {successes}/{len(chunks)} chunks succeeded "
+                f"for {output_path}"
+            )
+
+        return output_path
+
+    finally:
+        for p in chunk_paths:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
 
 async def generate_batch(articles, voice=DEFAULT_VOICE, rate=TTS_RATE,
@@ -83,7 +251,10 @@ async def generate_batch(articles, voice=DEFAULT_VOICE, rate=TTS_RATE,
             if cancel_event and cancel_event.is_set():
                 return (article, None)
 
-            audio_path = await generate_audio(speak_text, output_path, voice, rate)
+            audio_path = await generate_audio(
+                speak_text, output_path, voice, rate,
+                cancel_event=cancel_event,
+            )
             completed += 1
 
             # Debounced progress reporting
