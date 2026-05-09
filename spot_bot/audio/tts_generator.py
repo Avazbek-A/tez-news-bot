@@ -151,7 +151,7 @@ async def _tts_to_file(text, output_path, voice, rate, timeout):
 
 
 async def generate_audio(text, output_path, voice=DEFAULT_VOICE, rate=TTS_RATE,
-                         cancel_event=None):
+                         cancel_event=None, progress_callback=None):
     """Generate an MP3 file from text using the configured TTS engine.
 
     Default engine: Microsoft Edge TTS (free, online, decent quality).
@@ -190,6 +190,7 @@ async def generate_audio(text, output_path, voice=DEFAULT_VOICE, rate=TTS_RATE,
         if supertonic_supports(detected):
             result = await generate_audio_supertonic(
                 text, output_path, lang=detected, speed_rate=rate,
+                progress_callback=progress_callback,
             )
             if result:
                 return result
@@ -298,7 +299,20 @@ async def generate_batch(articles, voice=DEFAULT_VOICE, rate=TTS_RATE,
             await progress_callback(msg)
 
     tmpdir = tempfile.mkdtemp(prefix="spot_tts_")
-    semaphore = asyncio.Semaphore(MAX_CONCURRENT_TTS)
+
+    # Concurrency depends on the active engine. Edge TTS is network-bound
+    # (most time spent waiting on Microsoft's servers) so MAX_CONCURRENT_TTS
+    # parallel calls give a real speedup. Supertonic is CPU-bound ONNX
+    # inference; under Python's GIL parallel calls fight for one core and
+    # total throughput drops below serial. Force Semaphore(1) so synth
+    # calls run sequentially with predictable per-article pacing.
+    try:
+        from spot_bot.settings import get_setting
+        active_engine = (get_setting("voice_engine") or "edge").lower()
+    except Exception:
+        active_engine = "edge"
+    concurrency = 1 if active_engine == "supertonic" else MAX_CONCURRENT_TTS
+    semaphore = asyncio.Semaphore(concurrency)
     completed = 0
     last_report_time = 0.0
     total = len(articles)
@@ -327,13 +341,23 @@ async def generate_batch(articles, voice=DEFAULT_VOICE, rate=TTS_RATE,
             if cancel_event and cancel_event.is_set():
                 return (article, None)
 
+            # For Supertonic, emit a per-article tick BEFORE synthesis —
+            # each call takes 5-25s and the user otherwise sees nothing.
+            # For Edge we keep the post-call debounced reporting which is
+            # less chatty.
+            if active_engine == "supertonic":
+                await _report(
+                    f"Audio ({completed + 1}/{total}) via supertonic..."
+                )
+
             audio_path = await generate_audio(
                 speak_text, output_path, voice, rate,
                 cancel_event=cancel_event,
+                progress_callback=progress_callback,
             )
             completed += 1
 
-            # Debounced progress reporting
+            # Debounced progress reporting (Edge path)
             now = time.monotonic()
             if now - last_report_time >= _PROGRESS_DEBOUNCE:
                 last_report_time = now
