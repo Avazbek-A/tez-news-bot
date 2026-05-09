@@ -171,3 +171,33 @@ async def split_results_for_voice(results, max_seconds=VOICE_MAX_DURATION_SECOND
         batches.append(current)
 
     return batches
+
+
+async def compute_chapters(batch):
+    """Compute (article, start_seconds) pairs for a single voice-message batch.
+
+    Returns a list of (article, start_seconds) tuples — one per article in
+    the batch — where start_seconds is the cumulative offset within the
+    voice message at which that article begins.
+    """
+    chapters = []
+    cumulative = 0.0
+    for article, path in batch:
+        if not path or not os.path.exists(path):
+            continue
+        chapters.append((article, cumulative))
+        dur = await get_audio_duration(path)
+        if dur > 0:
+            cumulative += dur
+    return chapters
+
+
+def format_timestamp(seconds: float) -> str:
+    """Format a duration in seconds as M:SS or H:MM:SS for chapter lists."""
+    total = max(0, int(seconds))
+    hours = total // 3600
+    minutes = (total % 3600) // 60
+    secs = total % 60
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+    return f"{minutes}:{secs:02d}"

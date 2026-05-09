@@ -9,9 +9,12 @@ from spot_bot.audio.voice import (
     concat_mp3_to_opus,
     get_audio_duration,
     split_results_for_voice,
+    compute_chapters,
+    format_timestamp,
     ffmpeg_available,
     VOICE_MAX_DURATION_SECONDS,
 )
+from spot_bot.translations import t
 
 
 # Telegram voice-message size cap from bots is 50MB (same as documents).
@@ -257,7 +260,7 @@ async def send_voice_messages(bot: Bot, chat_id: int, results: list):
 
 
 async def send_combined_voice(bot: Bot, chat_id: int, results: list,
-                              status_callback=None):
+                              status_callback=None, lang: str = "en"):
     """Send TTS results as one or more combined voice messages, splitting
     at VOICE_MAX_DURATION_SECONDS boundaries so each message stays within
     Telegram's 1-hour voice-message cap.
@@ -350,6 +353,16 @@ async def send_combined_voice(bot: Bot, chat_id: int, results: list,
                     )
                 delivered += len(mp3_paths)
                 await asyncio.sleep(0.5)
+
+                # Chapter table-of-contents text message (only when there
+                # are multiple articles to navigate between in this part).
+                if len(batch) > 1:
+                    try:
+                        chapters = await compute_chapters(batch)
+                        if chapters:
+                            await _send_chapter_list(bot, chat_id, chapters, lang)
+                    except Exception as e:
+                        print(f"Chapter list send failed: {e}")
             except Exception as e:
                 print(f"Error sending combined voice part {i + 1}: {e}")
             finally:
@@ -431,6 +444,35 @@ async def _send_voice_split(bot, chat_id, ogg_path, article, total_duration):
             pass
 
     return sent
+
+
+async def _send_chapter_list(bot: Bot, chat_id: int, chapters: list, lang: str):
+    """Send a text message listing chapter timestamps + truncated titles
+    so the user can scrub the preceding voice message to a specific article.
+    Format per line: "M:SS — Title". Capped at Telegram's 4096-char message
+    limit; very long batches are truncated with a hint.
+    """
+    if not chapters:
+        return
+
+    header = t("chapters_header", lang)
+    lines = [header]
+    for article, start_seconds in chapters:
+        title = _short_caption(
+            article.get("title", ""),
+            fallback_body=article.get("body", ""),
+        ) or article.get("id", "")
+        ts = format_timestamp(start_seconds)
+        lines.append(f"{ts} — {title}")
+
+    text = "\n".join(lines)
+    # Telegram message limit is 4096 chars. Trim with an ellipsis if longer.
+    if len(text) > 4000:
+        text = text[:3990].rstrip() + "\n…"
+    try:
+        await bot.send_message(chat_id=chat_id, text=text)
+    except Exception as e:
+        print(f"Chapter list send error: {e}")
 
 
 async def _send_audio_fallback(bot: Bot, chat_id: int, results: list):

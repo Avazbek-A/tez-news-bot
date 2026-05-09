@@ -254,6 +254,11 @@ _STRINGS = {
         "ru": "Объединение аудио с анонсами...",
         "uz": "Audio e'lonlar bilan birlashtirilmoqda...",
     },
+    "chapters_header": {
+        "en": "📑 Chapters (scrub the voice message above):",
+        "ru": "📑 Главы (прокрутите голосовое выше):",
+        "uz": "📑 Bo'limlar (yuqoridagi ovozni o'zgartiring):",
+    },
     "sending_combined": {
         "en": "Sending combined audio...",
         "ru": "Отправка общего аудио...",

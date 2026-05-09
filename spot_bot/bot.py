@@ -401,6 +401,7 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                 audio_sent = await send_combined_voice(
                     bot, chat_id, result.audio_results,
                     status_callback=_voice_status,
+                    lang=lang,
                 )
             else:
                 await status_msg.edit_text(t("sending_audio", lang))
