@@ -45,6 +45,7 @@ _STRINGS = {
             "/channel — Show/change source channel\n"
             "/status — Show current settings\n\n"
             "Reading log:\n"
+            "/find <query> — Search past delivered articles\n"
             "/unread — Count new articles since last scrape\n"
             "/bookmarks — List saved articles\n"
             "/unbookmark <id> — Remove a bookmark\n\n"
@@ -92,6 +93,7 @@ _STRINGS = {
             "/channel — Канал-источник\n"
             "/status — Текущие настройки\n\n"
             "История:\n"
+            "/find <запрос> — Поиск по полученным статьям\n"
             "/unread — Сколько новых статей с прошлого сбора\n"
             "/bookmarks — Список сохранённых статей\n"
             "/unbookmark <id> — Удалить закладку\n\n"
@@ -139,6 +141,7 @@ _STRINGS = {
             "/channel — Manba kanali\n"
             "/status — Joriy sozlamalar\n\n"
             "O'qish tarixi:\n"
+            "/find <so'rov> — Olingan maqolalar orasidan qidirish\n"
             "/unread — Oxirgi yig'ishdan beri qancha yangi maqola\n"
             "/bookmarks — Saqlangan maqolalar ro'yxati\n"
             "/unbookmark <id> — Xatcho'pni olib tashlash\n\n"
@@ -556,6 +559,21 @@ _STRINGS = {
         "en": "Date is in the future — nothing to scrape yet.",
         "ru": "Дата в будущем — пока ничего собирать.",
         "uz": "Sana kelajakda — hozircha yig'iladigan narsa yo'q.",
+    },
+    "find_usage": {
+        "en": "Usage: /find <query>\nSearches all articles you've ever received.",
+        "ru": "Использование: /find <запрос>\nИщет среди всех когда-либо полученных статей.",
+        "uz": "Foydalanish: /find <so'rov>\nOlingan barcha maqolalar orasidan qidiradi.",
+    },
+    "find_none": {
+        "en": "No matches for '{query}'.",
+        "ru": "Не найдено совпадений для '{query}'.",
+        "uz": "'{query}' bo'yicha mos topilmadi.",
+    },
+    "find_header": {
+        "en": "🔎 {n} match(es) for '{query}':",
+        "ru": "🔎 {n} совпадений для '{query}':",
+        "uz": "🔎 '{query}' bo'yicha {n} ta moslik:",
     },
     "sending_combined": {
         "en": "Sending combined audio...",

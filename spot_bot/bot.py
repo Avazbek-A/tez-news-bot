@@ -47,6 +47,7 @@ from spot_bot.scrapers.telegram_channel import (
 )
 from datetime import datetime, timedelta, timezone
 from spot_bot.observability import start_heartbeat_task
+from spot_bot import history_db
 
 
 _RANGE_PATTERN = re.compile(r"^(\d+)-(\d+)$")
@@ -474,6 +475,13 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             remember_delivered(post_ids)
         except Exception as e:
             logger.warning("[reading-log] failed to record delivered IDs: %s", e)
+
+        # History DB: index article titles + bodies for /find searches and
+        # for /stats analytics. Best-effort — never blocks delivery.
+        try:
+            history_db.record_articles(result.articles)
+        except Exception as e:
+            logger.warning("[history-db] record_articles failed: %s", e)
 
         # Always show the final summary as the (overwritten) status message,
         # then send the post ID range as a SEPARATE persistent message so
@@ -1172,6 +1180,38 @@ async def cmd_ads(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# /find <query> — search delivered articles
+# ---------------------------------------------------------------------------
+
+async def cmd_find(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = _get_lang()
+    args = context.args or []
+    if not args:
+        await update.message.reply_text(t("find_usage", lang))
+        return
+    query = " ".join(args).strip()
+    matches = history_db.find(query, limit=20)
+    if not matches:
+        await update.message.reply_text(t("find_none", lang, query=query))
+        return
+
+    lines = [t("find_header", lang, n=len(matches), query=query)]
+    for m in matches:
+        title = (m.get("title") or m.get("body_head") or "")[:80]
+        date = m.get("date_iso") or "?"
+        pid = m.get("post_id") or 0
+        if pid:
+            lines.append(f"#{pid}  {date}  {title}")
+            lines.append(f"  → /scrape {pid}-{pid}")
+        else:
+            lines.append(f"{date}  {title}")
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:3990] + "\n…"
+    await update.message.reply_text(text)
+
+
+# ---------------------------------------------------------------------------
 # /unread — show how many new articles since last delivery
 # ---------------------------------------------------------------------------
 
@@ -1688,6 +1728,7 @@ def create_app():
     app.add_handler(CommandHandler("yesterday", cmd_yesterday))
     app.add_handler(CommandHandler("thisweek", cmd_thisweek))
     app.add_handler(CommandHandler("since", cmd_since))
+    app.add_handler(CommandHandler("find", cmd_find))
     app.add_handler(CommandHandler("unread", cmd_unread))
     app.add_handler(CommandHandler("bookmarks", cmd_bookmarks))
     app.add_handler(CommandHandler("unbookmark", cmd_unbookmark))
