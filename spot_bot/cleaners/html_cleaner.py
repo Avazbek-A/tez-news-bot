@@ -114,38 +114,121 @@ def clean_html(html_content, base_url=""):
 _TRACKER_PATTERN = re.compile(r"pixel|tracker|beacon|1x1|spacer|blank", re.IGNORECASE)
 
 
+def _largest_from_srcset(srcset: str) -> str:
+    """Return the highest-resolution URL from a srcset attribute, or ''.
+
+    Handles both width descriptors (e.g. `... 800w`) and pixel-density
+    descriptors (`... 2x`). Largest wins; descriptor-less entries are
+    treated as 0.
+    """
+    if not srcset:
+        return ""
+    candidates: list[tuple[float, str]] = []
+    for part in srcset.split(","):
+        bits = part.strip().split()
+        if not bits:
+            continue
+        url = bits[0]
+        size = 0.0
+        if len(bits) >= 2:
+            desc = bits[1]
+            try:
+                if desc.endswith("w"):
+                    size = float(desc[:-1])
+                elif desc.endswith("x"):
+                    # Treat density descriptor as much larger than width
+                    # so 1x doesn't win against an 800w plain entry.
+                    size = float(desc[:-1]) * 1000.0
+            except ValueError:
+                pass
+        candidates.append((size, url))
+    if not candidates:
+        return ""
+    candidates.sort()
+    return candidates[-1][1]
+
+
+def _img_best_url(img) -> str:
+    """Pick the best URL for an <img> tag, trying multiple lazy-load
+    conventions. Returns '' if nothing usable is present."""
+    # Lazy-load attributes in order of typical preference
+    for attr in ("data-src", "data-original", "data-lazy-src",
+                 "data-full-src", "data-large", "data-lazy"):
+        val = img.get(attr)
+        if val:
+            return val
+    # srcset: pick the largest variant
+    srcset = img.get("srcset") or img.get("data-srcset")
+    if srcset:
+        best = _largest_from_srcset(srcset)
+        if best:
+            return best
+    # Fallback to plain src
+    return img.get("src") or ""
+
+
 def extract_images(body_elem, base_url=""):
     """Extract article images from an HTML element.
 
-    Finds all <img> tags, resolves relative URLs, and filters out
-    tracking pixels and tiny decorative images.
+    For spot.uz the highest-resolution URL is on the parent
+    <a class="lightbox-img" href="..._l.webp">, not the inner thumbnail
+    <img>. We detect that pattern and prefer the parent href.
 
-    Returns list of {"url": ..., "alt": ...} dicts.
+    Falls through to <img> with srcset / data-* / src for sites that
+    don't use the lightbox pattern.
+
+    Returns list of {"url": ..., "alt": ...} dicts. Order preserved
+    (cover image first, body images in DOM order).
     """
     images = []
-    seen_urls = set()
+    seen_urls: set[str] = set()
+    handled_imgs = set()
 
+    def _add(url: str, alt: str = ""):
+        if not url:
+            return
+        if base_url and not url.startswith(("http://", "https://")):
+            url = urljoin(base_url, url)
+        if not url.startswith(("http://", "https://")):
+            return
+        if _TRACKER_PATTERN.search(url):
+            return
+        if url in seen_urls:
+            return
+        seen_urls.add(url)
+        images.append({"url": url, "alt": (alt or "").strip()})
+
+    # First pass: <a class="lightbox-img" href="..."> wraps the
+    # full-resolution version. Capture the href and mark the inner
+    # <img> as handled so we don't double-add a thumbnail later.
+    for a in body_elem.find_all("a", class_="lightbox-img"):
+        href = a.get("href") or ""
+        inner = a.find("img")
+        alt = ""
+        if inner is not None:
+            alt = inner.get("alt", "")
+            handled_imgs.add(id(inner))
+        _add(href, alt)
+
+    # Second pass: <picture><source srcset="..."> for modern responsive
+    # markup (less common on spot.uz but useful for RSS / other sources).
+    for source in body_elem.find_all("source"):
+        if source.parent and source.parent.name == "picture":
+            best = _largest_from_srcset(source.get("srcset") or "")
+            _add(best)
+
+    # Third pass: standalone <img> tags not inside a lightbox link.
     for img in body_elem.find_all("img"):
-        src = img.get("src", "") or img.get("data-src", "")
+        if id(img) in handled_imgs:
+            continue
+        src = _img_best_url(img)
         if not src:
             continue
 
-        # Resolve relative URLs
-        if base_url and not src.startswith(("http://", "https://")):
-            src = urljoin(base_url, src)
-
-        # Skip if not a proper URL
-        if not src.startswith(("http://", "https://")):
-            continue
-
-        # Skip tracking pixels
-        if _TRACKER_PATTERN.search(src):
-            continue
-
-        # Skip tiny images (width/height attrs indicate decorative)
-        width = img.get("width", "")
-        height = img.get("height", "")
+        # Tiny-image filter (decorative dividers, tracking pixels).
         try:
+            width = img.get("width") or ""
+            height = img.get("height") or ""
             if width and int(width) < 50:
                 continue
             if height and int(height) < 50:
@@ -153,13 +236,7 @@ def extract_images(body_elem, base_url=""):
         except (ValueError, TypeError):
             pass
 
-        # Deduplicate
-        if src in seen_urls:
-            continue
-        seen_urls.add(src)
-
-        alt = img.get("alt", "").strip()
-        images.append({"url": src, "alt": alt})
+        _add(src, img.get("alt", ""))
 
     return images
 

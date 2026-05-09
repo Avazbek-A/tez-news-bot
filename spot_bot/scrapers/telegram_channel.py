@@ -158,6 +158,40 @@ async def _fetch_page(client: httpx.AsyncClient, url: str) -> Optional[str]:
     return None
 
 
+# Regex matches background-image: url('https://...') / url("https://...")
+# / url(https://...). Telegram channel pages put photo URLs in inline
+# styles on .tgme_widget_message_photo_wrap and .tgme_widget_message_photo.
+_BG_URL_RE = re.compile(
+    r"background-image\s*:\s*url\(\s*['\"]?(https?://[^'\")\s]+)['\"]?\s*\)",
+    re.IGNORECASE,
+)
+
+
+def _extract_post_photos(msg) -> list:
+    """Extract Telegram-CDN photo URLs from the inline background-image
+    styles on a post's photo wrappers. Deduplicated, source-order preserved.
+
+    Returns: list of {"url": ..., "alt": ""} dicts (alt always empty —
+    Telegram doesn't expose photo alt text in the public preview).
+    """
+    photos = []
+    seen: set[str] = set()
+    selectors = (
+        ".tgme_widget_message_photo_wrap",
+        ".tgme_widget_message_photo",
+    )
+    for sel in selectors:
+        for el in msg.css(sel):
+            style = el.attributes.get("style") or ""
+            match = _BG_URL_RE.search(style)
+            if match:
+                url = match.group(1)
+                if url and url not in seen:
+                    seen.add(url)
+                    photos.append({"url": url, "alt": ""})
+    return photos
+
+
 def _extract_posts_from_html(html: str, processed_ids: set):
     """Parse an HTML page and return new (post_data, numeric_id) tuples.
 
@@ -214,12 +248,19 @@ def _extract_posts_from_html(html: str, processed_ids: set):
 
             has_spot_link = any("spot.uz" in l for l in links)
 
+            # Telegram channel posts often carry 1-N photos in
+            # background-image styles on .tgme_widget_message_photo_wrap
+            # elements. These are *separate* assets from any spot.uz
+            # article images linked from the post — so capture both.
+            tg_photos = _extract_post_photos(msg)
+
             post_data = {
                 "id": post_id,
                 "date": date_obj.isoformat(),
                 "text_html": text_content,
                 "links": links,
                 "has_spot_link": has_spot_link,
+                "tg_photos": tg_photos,
             }
             processed_ids.add(post_id)
             results.append((post_data, _get_numeric_id(post_id)))

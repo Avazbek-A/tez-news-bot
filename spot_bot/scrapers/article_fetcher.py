@@ -100,6 +100,11 @@ async def _process_post(client: httpx.AsyncClient, post, semaphore,
                 link = l
                 break
 
+    # Telegram-side photos attached to the channel post (Phase 16). These
+    # are independent assets from any spot.uz article images and should be
+    # included regardless of source. Empty list when the post is text-only.
+    tg_photos = list(post.get("tg_photos") or [])
+
     if not link:
         await _tick()
         return {
@@ -107,7 +112,7 @@ async def _process_post(client: httpx.AsyncClient, post, semaphore,
             "body": telegram_text,
             "date": date,
             "source": "telegram",
-            "images": [],
+            "images": tg_photos if include_images else [],
         }
 
     async with semaphore:
@@ -120,18 +125,32 @@ async def _process_post(client: httpx.AsyncClient, post, semaphore,
 
             if resp.status_code != 200:
                 logger.warning("HTTP %d for %s", resp.status_code, link)
-                return _telegram_fallback(telegram_text, date, [])
+                return _telegram_fallback(telegram_text, date,
+                                          tg_photos if include_images else [])
 
             content = resp.text
             if not content:
-                return _telegram_fallback(telegram_text, date, [])
+                return _telegram_fallback(telegram_text, date,
+                                          tg_photos if include_images else [])
 
             headline, body, images = clean_html(content, base_url=link)
 
+            # Merge: Telegram post photos first, then spot.uz article
+            # images. Order matters — TG photos are usually the cover/lead
+            # photos shown in the channel preview; the article body images
+            # follow naturally.
+            merged_images = []
+            if include_images:
+                seen: set[str] = set()
+                for img in (tg_photos + (images or [])):
+                    url = img.get("url") if isinstance(img, dict) else ""
+                    if url and url not in seen:
+                        seen.add(url)
+                        merged_images.append(img)
+
             if not body:
                 return _telegram_fallback(
-                    telegram_text, date,
-                    images if include_images else [],
+                    telegram_text, date, merged_images,
                     title=headline or "",
                 )
 
@@ -140,12 +159,13 @@ async def _process_post(client: httpx.AsyncClient, post, semaphore,
                 "body": body,
                 "date": date,
                 "source": "spot.uz",
-                "images": images if include_images else [],
+                "images": merged_images,
             }
 
         except Exception as e:
             logger.warning("Error fetching %s: %s", post.get("id"), e)
-            return _telegram_fallback(telegram_text, date, [])
+            return _telegram_fallback(telegram_text, date,
+                                      tg_photos if include_images else [])
         finally:
             await _tick()
 
