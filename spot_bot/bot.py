@@ -48,6 +48,7 @@ from spot_bot.scrapers.telegram_channel import (
 from datetime import datetime, timedelta, timezone
 from spot_bot.observability import start_heartbeat_task
 from spot_bot import history_db
+from spot_bot import help as help_module
 
 
 _RANGE_PATTERN = re.compile(r"^(\d+)-(\d+)$")
@@ -102,8 +103,8 @@ def _build_voice_list(lang):
 # ---------------------------------------------------------------------------
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    lang = _get_lang()
-    await update.message.reply_text(t("start_help", lang))
+    """Welcome card with quick-start examples + buttons to /help and /about."""
+    await help_module.cmd_start(update, context)
 
 
 # ---------------------------------------------------------------------------
@@ -463,13 +464,21 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                     inline_images=audio_inline_images,
                 )
 
-        # Final summary with post ID range
-        parts = [t("articles_count", lang, n=len(result.articles))]
-        if include_images:
-            parts.append(t("images_count", lang, n=images_sent))
+        # Build the structured delivery card. New in Phase 15:
+        # uses delivery_card / delivery_line_* / delivery_next_batch
+        # translation keys for a clean two-section layout.
+        line_keys = ["delivery_line_articles"]
+        line_args = [{"n": len(result.articles)}]
         if include_audio:
-            parts.append(t("audio_count", lang, n=audio_sent))
-        summary = t("done_sent", lang, parts=", ".join(parts))
+            line_keys.append("delivery_line_audio")
+            line_args.append({"n": audio_sent})
+        if include_images:
+            line_keys.append("delivery_line_images")
+            line_args.append({"n": images_sent})
+        body_lines = [
+            t(k, lang, **a) for k, a in zip(line_keys, line_args)
+        ]
+        summary_block = "\n".join(body_lines)
 
         # Extract post ID range from articles for "next batch" hint
         post_ids = []
@@ -508,23 +517,35 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         except Exception as e:
             logger.warning("[history-db] record_articles failed: %s", e)
 
-        # Always show the final summary as the (overwritten) status message,
-        # then send the post ID range as a SEPARATE persistent message so
-        # the IDs stay visible in chat without having to open the .txt file.
-        await status_msg.edit_text(summary)
-
+        # Render and send the delivery card. The card is a single
+        # well-formatted block with sections so the user gets a clear
+        # "what just happened" at a glance.
         if post_ids:
             newest_id = max(post_ids)
             oldest_id = min(post_ids)
             range_size = newest_id - oldest_id
-            range_msg = t("posts_range", lang,
-                          oldest=oldest_id, newest=newest_id)
+            next_batch_str = ""
             if range_size > 0:
-                range_msg += "\n" + t("next_batch", lang,
-                                      start=newest_id,
-                                      end=newest_id + range_size)
+                next_batch_str = t("delivery_next_batch", lang,
+                                   start=newest_id,
+                                   end=newest_id + range_size)
+            card = t("delivery_card", lang,
+                     summary=summary_block,
+                     oldest=oldest_id,
+                     newest=newest_id,
+                     next_batch=next_batch_str)
+        else:
+            card = t("delivery_card", lang,
+                     summary=summary_block,
+                     oldest="?",
+                     newest="?",
+                     next_batch="")
+
+        try:
+            await status_msg.edit_text(card)
+        except Exception:
             try:
-                await bot.send_message(chat_id, range_msg)
+                await bot.send_message(chat_id, card)
             except Exception:
                 pass
 
@@ -2270,6 +2291,14 @@ async def _post_init(app: Application):
     # Outbound heartbeat (no-op when HEARTBEAT_URL is unset).
     start_heartbeat_task()
 
+    # Phase 15: install bot identity (description + commands menu) so
+    # /-autocomplete and the bot's profile screen show curated copy in
+    # the user's UI language.
+    try:
+        await help_module.install_bot_identity(app)
+    except Exception as e:
+        logger.warning("[identity] install_bot_identity failed: %s", e)
+
 
 async def _on_unhandled_error(update, context):
     """Forward unhandled exceptions in handlers to Sentry (if configured)
@@ -2300,6 +2329,18 @@ def create_app():
     app = Application.builder().token(BOT_TOKEN).post_init(_post_init).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("help", help_module.cmd_help))
+    app.add_handler(CommandHandler("help_scrape", help_module.cmd_help_scrape))
+    app.add_handler(CommandHandler("help_auto", help_module.cmd_help_auto))
+    app.add_handler(CommandHandler("help_audio", help_module.cmd_help_audio))
+    app.add_handler(CommandHandler("help_filter", help_module.cmd_help_filter))
+    app.add_handler(CommandHandler("help_library", help_module.cmd_help_library))
+    app.add_handler(CommandHandler("help_languages", help_module.cmd_help_languages))
+    app.add_handler(CommandHandler("about", help_module.cmd_about))
+    app.add_handler(CallbackQueryHandler(
+        help_module.handle_help_callback,
+        pattern=r"^help_",
+    ))
     app.add_handler(CommandHandler("scrape", cmd_scrape))
     app.add_handler(CommandHandler("cancel", cmd_cancel))
     app.add_handler(CommandHandler("voice", cmd_voice))

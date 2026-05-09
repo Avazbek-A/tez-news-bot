@@ -2211,6 +2211,663 @@ _STRINGS = {
         "tr": 'Sonraki makale:',
     },
 
+    # ===== Phase 15 redesign: identity, help, delivery card =====
+
+    'bot_short_description': {
+        "en": "Free, multilingual news bot. Read or listen to Spot.uz, Telegram channels, and RSS feeds. Auto-translation, summaries, voice messages.",
+        "ru": "Бесплатный многоязычный новостной бот. Читайте и слушайте Spot.uz, Telegram-каналы и RSS. Авто-перевод, резюме, голосовые.",
+        "uz": "Bepul, ko'p tilli yangiliklar boti. Spot.uz, Telegram va RSS dan o'qing yoki tinglang. Avto-tarjima, xulosalar, ovozli xabarlar.",
+        "de": "Kostenloser, mehrsprachiger News-Bot. Spot.uz, Telegram-Kanäle, RSS-Feeds — lesen oder hören. Auto-Übersetzung, Zusammenfassungen, Sprachnachrichten.",
+        "tr": "Ücretsiz, çok dilli haber botu. Spot.uz, Telegram kanalları ve RSS — oku veya dinle. Otomatik çeviri, özetler, sesli mesajlar.",
+    },
+    'bot_long_description': {
+        "en": (
+            "Tez News Bot — a free, multilingual news companion.\n\n"
+            "Read or listen to articles from Spot.uz, public Telegram channels, "
+            "and any RSS feed. Bot auto-translates between Russian, Uzbek, "
+            "English, German, and Turkish, generates voice messages with mobile "
+            "speed control, and writes 2-3-sentence LLM summaries. Free forever — "
+            "no ads, no tracking, open source.\n\n"
+            "Run /start to begin or /help for the full guide."
+        ),
+        "ru": (
+            "Tez News Bot — бесплатный многоязычный новостной помощник.\n\n"
+            "Читайте или слушайте статьи из Spot.uz, публичных Telegram-каналов "
+            "и любых RSS-лент. Авто-перевод между русским, узбекским, английским, "
+            "немецким и турецким, голосовые сообщения с регулировкой скорости "
+            "на мобильном, LLM-резюме на 2-3 предложения. Бесплатно навсегда — "
+            "без рекламы и трекинга, открытый код.\n\n"
+            "Начните с /start или /help для полного руководства."
+        ),
+        "uz": (
+            "Tez News Bot — bepul, ko'p tilli yangiliklar yordamchisi.\n\n"
+            "Spot.uz, ochiq Telegram kanallar va istalgan RSS lentadan maqolalarni "
+            "o'qing yoki tinglang. Rus, o'zbek, ingliz, nemis va turk tillari "
+            "o'rtasida avto-tarjima, mobil tezlik boshqaruvi bilan ovozli xabarlar, "
+            "2-3 jumlali LLM xulosalari. Doimo bepul — reklama va kuzatuvsiz, ochiq kodli.\n\n"
+            "Boshlash uchun /start, to'liq qo'llanma uchun /help."
+        ),
+        "de": (
+            "Tez News Bot — ein kostenloser, mehrsprachiger News-Begleiter.\n\n"
+            "Lese oder höre Artikel von Spot.uz, öffentlichen Telegram-Kanälen "
+            "und beliebigen RSS-Feeds. Auto-Übersetzung zwischen Russisch, "
+            "Usbekisch, Englisch, Deutsch und Türkisch, Sprachnachrichten mit "
+            "mobiler Geschwindigkeitssteuerung, 2-3-Satz-LLM-Zusammenfassungen. "
+            "Für immer kostenlos — keine Werbung, kein Tracking, Open Source.\n\n"
+            "Starte mit /start oder /help für die ganze Anleitung."
+        ),
+        "tr": (
+            "Tez News Bot — ücretsiz, çok dilli haber asistanı.\n\n"
+            "Spot.uz, açık Telegram kanalları ve herhangi bir RSS akışından "
+            "makaleleri oku ya da dinle. Rusça, Özbekçe, İngilizce, Almanca ve "
+            "Türkçe arası otomatik çeviri, mobilde hız kontrollü sesli mesajlar, "
+            "2-3 cümlelik LLM özetleri. Sonsuza kadar ücretsiz — reklamsız, "
+            "izlemesiz, açık kaynak.\n\n"
+            "Başlamak için /start veya tam rehber için /help."
+        ),
+    },
+
+    # /start welcome
+    'start_welcome': {
+        "en": (
+            "👋 Welcome to Tez News Bot\n\n"
+            "Your free, multilingual news companion. Read or listen to articles "
+            "from Spot.uz, Telegram channels, and RSS feeds — in 5 languages.\n\n"
+            "🚀 Quick start\n\n"
+            "  /scrape 5 audio  → 5 latest articles + voice messages\n"
+            "  /today           → today's news\n"
+            "  /sources         → your news sources\n\n"
+            "Tap below for the full guide."
+        ),
+        "ru": (
+            "👋 Добро пожаловать в Tez News Bot\n\n"
+            "Ваш бесплатный многоязычный новостной помощник. Читайте или слушайте "
+            "статьи из Spot.uz, Telegram-каналов и RSS — на 5 языках.\n\n"
+            "🚀 Быстрый старт\n\n"
+            "  /scrape 5 audio  → 5 последних + голосовые\n"
+            "  /today           → новости за сегодня\n"
+            "  /sources         → ваши источники\n\n"
+            "Полное руководство — кнопка ниже."
+        ),
+        "uz": (
+            "👋 Tez News Bot ga xush kelibsiz\n\n"
+            "Sizning bepul, ko'p tilli yangiliklar yordamchingiz. Spot.uz, Telegram "
+            "kanallar va RSS dan maqolalarni 5 tilda o'qing yoki tinglang.\n\n"
+            "🚀 Tez boshlash\n\n"
+            "  /scrape 5 audio  → so'nggi 5 ta + ovozli xabarlar\n"
+            "  /today           → bugungi yangiliklar\n"
+            "  /sources         → sizning manbalaringiz\n\n"
+            "To'liq qo'llanma uchun pastdagi tugmani bosing."
+        ),
+        "de": (
+            "👋 Willkommen beim Tez News Bot\n\n"
+            "Dein kostenloser, mehrsprachiger News-Begleiter. Lese oder höre "
+            "Artikel von Spot.uz, Telegram-Kanälen und RSS-Feeds — in 5 Sprachen.\n\n"
+            "🚀 Schnellstart\n\n"
+            "  /scrape 5 audio  → 5 neueste + Sprachnachrichten\n"
+            "  /today           → heutige Nachrichten\n"
+            "  /sources         → deine Quellen\n\n"
+            "Tippe unten für die ganze Anleitung."
+        ),
+        "tr": (
+            "👋 Tez News Bot'a hoş geldin\n\n"
+            "Ücretsiz, çok dilli haber asistanın. Spot.uz, Telegram kanalları ve "
+            "RSS akışlarından makaleleri 5 dilde oku ya da dinle.\n\n"
+            "🚀 Hızlı başlangıç\n\n"
+            "  /scrape 5 audio  → son 5 + sesli mesajlar\n"
+            "  /today           → bugünün haberleri\n"
+            "  /sources         → kaynakların\n\n"
+            "Tam rehber için aşağıdaki düğme."
+        ),
+    },
+
+    'btn_full_help': {
+        "en": "📚 Full help",
+        "ru": "📚 Полное руководство",
+        "uz": "📚 To'liq qo'llanma",
+        "de": "📚 Komplette Anleitung",
+        "tr": "📚 Tam rehber",
+    },
+    'btn_about': {
+        "en": "🆘 About",
+        "ru": "🆘 О боте",
+        "uz": "🆘 Bot haqida",
+        "de": "🆘 Über",
+        "tr": "🆘 Hakkında",
+    },
+    'btn_back_to_help': {
+        "en": "← Back to help",
+        "ru": "← К меню помощи",
+        "uz": "← Yordam menyusiga",
+        "de": "← Zurück zur Hilfe",
+        "tr": "← Yardıma dön",
+    },
+
+    # Help index
+    'help_index': {
+        "en": (
+            "📚 Tez News Bot — Help\n\n"
+            "Choose a topic below or type /help_<topic>:\n\n"
+            "📡 scrape — Scrape news from your sources\n"
+            "🤖 auto — Schedule recurring deliveries\n"
+            "🎙️ audio — Voice messages, engines, voices, speed\n"
+            "🔍 filter — Quality, topics, duplicates, ads\n"
+            "📚 library — Bookmarks, search, stats, resume\n"
+            "🌐 languages — UI, translation, sources, summaries"
+        ),
+        "ru": (
+            "📚 Tez News Bot — Помощь\n\n"
+            "Выберите тему ниже или введите /help_<тема>:\n\n"
+            "📡 scrape — Сбор новостей из источников\n"
+            "🤖 auto — Расписание повторных сборов\n"
+            "🎙️ audio — Голосовые, движки, голоса, скорость\n"
+            "🔍 filter — Качество, темы, дубли, реклама\n"
+            "📚 library — Закладки, поиск, статистика, возврат\n"
+            "🌐 languages — UI, перевод, источники, резюме"
+        ),
+        "uz": (
+            "📚 Tez News Bot — Yordam\n\n"
+            "Quyidagi mavzuni tanlang yoki /help_<mavzu> ni yozing:\n\n"
+            "📡 scrape — Manbalardan yangiliklarni yig'ish\n"
+            "🤖 auto — Takroriy yetkazib berishni rejalashtirish\n"
+            "🎙️ audio — Ovozli xabarlar, ovozlar, tezlik\n"
+            "🔍 filter — Sifat, mavzu, takrorlar, reklama\n"
+            "📚 library — Xatcho'plar, qidiruv, statistika, davom etish\n"
+            "🌐 languages — UI, tarjima, manbalar, xulosalar"
+        ),
+        "de": (
+            "📚 Tez News Bot — Hilfe\n\n"
+            "Wähle ein Thema unten oder tippe /help_<thema>:\n\n"
+            "📡 scrape — Nachrichten von deinen Quellen abrufen\n"
+            "🤖 auto — Wiederkehrende Lieferungen planen\n"
+            "🎙️ audio — Sprachnachrichten, Engines, Stimmen, Tempo\n"
+            "🔍 filter — Qualität, Themen, Duplikate, Werbung\n"
+            "📚 library — Lesezeichen, Suche, Statistik, Fortsetzen\n"
+            "🌐 languages — UI, Übersetzung, Quellen, Zusammenfassungen"
+        ),
+        "tr": (
+            "📚 Tez News Bot — Yardım\n\n"
+            "Aşağıdan bir konu seç veya /help_<konu> yaz:\n\n"
+            "📡 scrape — Kaynaklardan haber çek\n"
+            "🤖 auto — Yinelenen teslimatları zamanla\n"
+            "🎙️ audio — Sesli mesajlar, motorlar, sesler, hız\n"
+            "🔍 filter — Kalite, konu, tekrar, reklam\n"
+            "📚 library — Yer imleri, arama, istatistik, devam\n"
+            "🌐 languages — UI, çeviri, kaynaklar, özetler"
+        ),
+    },
+    'help_btn_scrape': {
+        "en": "📡 scrape", "ru": "📡 scrape", "uz": "📡 scrape",
+        "de": "📡 scrape", "tr": "📡 scrape",
+    },
+    'help_btn_auto': {
+        "en": "🤖 auto", "ru": "🤖 auto", "uz": "🤖 auto",
+        "de": "🤖 auto", "tr": "🤖 auto",
+    },
+    'help_btn_audio': {
+        "en": "🎙️ audio", "ru": "🎙️ audio", "uz": "🎙️ audio",
+        "de": "🎙️ audio", "tr": "🎙️ audio",
+    },
+    'help_btn_filter': {
+        "en": "🔍 filter", "ru": "🔍 filter", "uz": "🔍 filter",
+        "de": "🔍 filter", "tr": "🔍 filter",
+    },
+    'help_btn_library': {
+        "en": "📚 library", "ru": "📚 library", "uz": "📚 library",
+        "de": "📚 library", "tr": "📚 library",
+    },
+    'help_btn_languages': {
+        "en": "🌐 languages", "ru": "🌐 languages", "uz": "🌐 languages",
+        "de": "🌐 languages", "tr": "🌐 languages",
+    },
+
+    # /help_scrape
+    'help_scrape': {
+        "en": (
+            "📡 Scrape — Get news from your sources\n\n"
+            "By count\n"
+            "  /scrape 50 — 50 latest as .txt file\n"
+            "  /scrape 50 inline — 50 as separate messages\n"
+            "  /scrape 50 audio — 50 + individual voice messages\n"
+            "  /scrape 50 audio combined — 50 + one combined voice (split at 1h)\n"
+            "  /scrape 50 images — 50 + image albums per article\n\n"
+            "By date\n"
+            "  /today, /yesterday, /thisweek\n"
+            "  /since 2026-05-01 — from a specific date\n\n"
+            "By post ID\n"
+            "  /scrape 35808-35758 — exact ID range\n"
+            "  /scrape 2000-1950 — by offset from latest\n\n"
+            "By title\n"
+            '  /scrape from "metro" 50 — search, then scrape forward\n\n'
+            "Translate per scrape\n"
+            "  /scrape 50 audio translate=de — translate to German before TTS\n\n"
+            "💡 Combine flags freely. Try:\n"
+            "  /scrape 5 inline images audio translate=tr"
+        ),
+        "ru": (
+            "📡 Сбор — Новости из ваших источников\n\n"
+            "По количеству\n"
+            "  /scrape 50 — 50 последних как .txt\n"
+            "  /scrape 50 inline — 50 отдельными сообщениями\n"
+            "  /scrape 50 audio — 50 + отдельные голосовые\n"
+            "  /scrape 50 audio combined — 50 + общий голос (по 1ч)\n"
+            "  /scrape 50 images — 50 + альбомы изображений\n\n"
+            "По дате\n"
+            "  /today, /yesterday, /thisweek\n"
+            "  /since 2026-05-01 — с указанной даты\n\n"
+            "По ID поста\n"
+            "  /scrape 35808-35758 — точный диапазон ID\n"
+            "  /scrape 2000-1950 — по смещению от последнего\n\n"
+            "По заголовку\n"
+            '  /scrape from "metro" 50 — поиск, затем сбор вперёд\n\n'
+            "Перевод разово\n"
+            "  /scrape 50 audio translate=de — перевести на немецкий перед озвучкой\n\n"
+            "💡 Флаги комбинируются. Попробуйте:\n"
+            "  /scrape 5 inline images audio translate=tr"
+        ),
+        "uz": (
+            "📡 Yig'ish — Manbalardan yangiliklar\n\n"
+            "Soni bo'yicha\n"
+            "  /scrape 50 — so'nggi 50 ta .txt\n"
+            "  /scrape 50 inline — 50 ta alohida xabar\n"
+            "  /scrape 50 audio — 50 + alohida ovozli\n"
+            "  /scrape 50 audio combined — 50 + umumiy ovoz (1 soat)\n"
+            "  /scrape 50 images — 50 + rasm albomlari\n\n"
+            "Sana bo'yicha\n"
+            "  /today, /yesterday, /thisweek\n"
+            "  /since 2026-05-01 — ma'lum sanadan\n\n"
+            "Post ID bo'yicha\n"
+            "  /scrape 35808-35758 — aniq ID oralig'i\n"
+            "  /scrape 2000-1950 — so'nggidan siljish bo'yicha\n\n"
+            "Sarlavha bo'yicha\n"
+            '  /scrape from "metro" 50 — qidirish va oldinga\n\n'
+            "Bir martalik tarjima\n"
+            "  /scrape 50 audio translate=de — TTS oldidan nemis tiliga\n\n"
+            "💡 Bayroqlarni birlashtiring:\n"
+            "  /scrape 5 inline images audio translate=tr"
+        ),
+        "de": (
+            "📡 Scrape — Nachrichten von deinen Quellen\n\n"
+            "Nach Anzahl\n"
+            "  /scrape 50 — die 50 neuesten als .txt\n"
+            "  /scrape 50 inline — 50 als einzelne Nachrichten\n"
+            "  /scrape 50 audio — 50 + einzelne Sprachnachrichten\n"
+            "  /scrape 50 audio combined — 50 + kombinierte Sprache (geteilt bei 1h)\n"
+            "  /scrape 50 images — 50 + Bilderalben pro Artikel\n\n"
+            "Nach Datum\n"
+            "  /today, /yesterday, /thisweek\n"
+            "  /since 2026-05-01 — ab einem Datum\n\n"
+            "Nach Post-ID\n"
+            "  /scrape 35808-35758 — exakter ID-Bereich\n"
+            "  /scrape 2000-1950 — nach Versatz vom neuesten\n\n"
+            "Nach Titel\n"
+            '  /scrape from "metro" 50 — suchen, dann vorwärts\n\n'
+            "Pro Scrape übersetzen\n"
+            "  /scrape 50 audio translate=de — vor TTS auf Deutsch\n\n"
+            "💡 Flags frei kombinieren. Probier:\n"
+            "  /scrape 5 inline images audio translate=tr"
+        ),
+        "tr": (
+            "📡 Scrape — Kaynaklardan haber\n\n"
+            "Sayıya göre\n"
+            "  /scrape 50 — son 50 .txt olarak\n"
+            "  /scrape 50 inline — 50 ayrı mesaj\n"
+            "  /scrape 50 audio — 50 + ayrı sesli mesajlar\n"
+            "  /scrape 50 audio combined — 50 + birleşik ses (1s'de bölünür)\n"
+            "  /scrape 50 images — 50 + makale başına görsel albüm\n\n"
+            "Tarihe göre\n"
+            "  /today, /yesterday, /thisweek\n"
+            "  /since 2026-05-01 — belirli tarihten\n\n"
+            "Post ID'ye göre\n"
+            "  /scrape 35808-35758 — tam ID aralığı\n"
+            "  /scrape 2000-1950 — sondan kayma\n\n"
+            "Başlığa göre\n"
+            '  /scrape from "metro" 50 — ara, sonra ileri\n\n'
+            "Tek seferlik çeviri\n"
+            "  /scrape 50 audio translate=de — TTS öncesi Almancaya\n\n"
+            "💡 Bayrakları birleştir:\n"
+            "  /scrape 5 inline images audio translate=tr"
+        ),
+    },
+
+    # /help_auto
+    'help_auto': {
+        "en": (
+            "🤖 Auto — Recurring scheduled scrapes\n\n"
+            "Daily at a fixed time\n"
+            "  /auto daily 08:00 50 audio combined\n\n"
+            "Weekdays only\n"
+            "  /auto weekdays 08:00 50 audio\n\n"
+            "Once a week\n"
+            "  /auto weekly Mon 08:00 50 audio\n\n"
+            "Every N days (interval)\n"
+            "  /auto every 3 50 audio combined\n\n"
+            "Disable\n"
+            "  /auto off\n\n"
+            "Show current\n"
+            "  /auto\n\n"
+            "💡 Times use Asia/Tashkent (UTC+5)."
+        ),
+    },
+
+    # /help_audio
+    'help_audio': {
+        "en": (
+            "🎙️ Audio — Voice messages and TTS\n\n"
+            "Engines\n"
+            "  /voice_engine edge — Microsoft Edge TTS (default, online, free)\n"
+            "  /voice_engine supertonic — Open ONNX, RU/EN/+28; Uzbek auto-routes to Edge\n"
+            "  /voice_engine piper — Local Piper (requires model files)\n\n"
+            "Voices (Edge TTS)\n"
+            "  /voice — list all available\n"
+            "  /voice andrew — set global voice\n"
+            "  /voice de katja — per-language voice (auto-picked by article language)\n\n"
+            "Speed\n"
+            "  /speed normal | fast | faster | fastest\n"
+            "  /speed +30% — custom rate\n\n"
+            "Modes\n"
+            "  /scrape 5 audio — one voice per article\n"
+            "  /scrape 5 audio combined — merged voice (split at 1h)\n\n"
+            "💡 Combined voice messages get a chapter list with timestamps so "
+            "you can scrub to a specific article."
+        ),
+    },
+
+    # /help_filter
+    'help_filter': {
+        "en": (
+            "🔍 Filter — Trim what reaches you\n\n"
+            "Quality (skip short stubs)\n"
+            "  /quality 200 — drop articles under 200 chars\n"
+            "  /quality 0 — disable\n\n"
+            "Topics (keyword filter)\n"
+            "  /topics economy tech — only deliver matching\n"
+            "  /topics off\n\n"
+            "Duplicates (multi-source)\n"
+            "  /dedup 85 — collapse titles ≥85% similar\n"
+            "  /dedup 100 — disable\n\n"
+            "Ads\n"
+            "  /ads on — keep promotional content\n"
+            "  /ads off — strip ad markers (default)\n\n"
+            "Order\n"
+            "  /order newest — newest first (default)\n"
+            "  /order oldest — oldest first"
+        ),
+    },
+
+    # /help_library
+    'help_library': {
+        "en": (
+            "📚 Library — Track, save, find\n\n"
+            "Stats\n"
+            "  /stats — reading totals (week + all-time)\n\n"
+            "Find anything you've received\n"
+            "  /find metro — search past articles\n"
+            "  /unread — count new since last scrape\n\n"
+            "Save articles for later\n"
+            "  /bookmark 35808 economy — save with optional tags\n"
+            "  /bookmarks — list saved\n"
+            "  /bookmarks economy — filter by tag\n"
+            "  /unbookmark 35808\n\n"
+            "Resume long voice messages\n"
+            "  Tap 📍 Mark here under a voice message\n"
+            "  /resume — jump to it later"
+        ),
+    },
+
+    # /help_languages
+    'help_languages': {
+        "en": (
+            "🌐 Languages — Multi-language listening\n\n"
+            "Bot UI\n"
+            "  /lang en | ru | uz | de | tr\n\n"
+            "Article translation (read RU news in DE/TR)\n"
+            "  /translate de — all articles to German before TTS\n"
+            "  /translate tr — all to Turkish\n"
+            "  /translate off — original language\n"
+            "  Per scrape: /scrape 50 audio translate=de\n\n"
+            "News sources (mix any languages)\n"
+            "  /sources — list configured\n"
+            "  /addsource rss <url> [name]\n"
+            "  /addsource telegram <https://t.me/s/...> [name]\n"
+            "  /removesource <id>\n\n"
+            "LLM summaries (Groq free tier)\n"
+            "  /summarize on — 2-3 sentence summary on top of each article\n"
+            "  /summarize off"
+        ),
+    },
+
+    # /about
+    'about_body': {
+        "en": (
+            "🆘 Tez News Bot\n\n"
+            "A free, open-source, multilingual news companion.\n\n"
+            "Built with\n"
+            "• python-telegram-bot — Telegram integration\n"
+            "• httpx + selectolax — scraping (replaced Playwright)\n"
+            "• Edge TTS / Supertonic-3 / Piper — speech synthesis\n"
+            "• Groq (free Llama tier) — translation + summaries\n"
+            "• ffmpeg — audio processing\n"
+            "• SQLite — history + bookmarks + translation cache\n\n"
+            "Free forever within free-tier API quotas. No ads, no tracking.\n\n"
+            "Source on GitHub. Run /help for the full guide."
+        ),
+        "ru": (
+            "🆘 Tez News Bot\n\n"
+            "Бесплатный, многоязычный новостной помощник с открытым кодом.\n\n"
+            "На основе\n"
+            "• python-telegram-bot — интеграция с Telegram\n"
+            "• httpx + selectolax — скрапинг (вместо Playwright)\n"
+            "• Edge TTS / Supertonic-3 / Piper — синтез речи\n"
+            "• Groq (free Llama) — перевод + резюме\n"
+            "• ffmpeg — обработка аудио\n"
+            "• SQLite — история + закладки + кэш перевода\n\n"
+            "Бесплатно навсегда в пределах free-tier API. Без рекламы и трекинга.\n\n"
+            "Исходники на GitHub. /help — полное руководство."
+        ),
+        "uz": (
+            "🆘 Tez News Bot\n\n"
+            "Bepul, ochiq kodli, ko'p tilli yangiliklar yordamchisi.\n\n"
+            "Asoslari\n"
+            "• python-telegram-bot — Telegram integratsiyasi\n"
+            "• httpx + selectolax — skraping (Playwright o'rniga)\n"
+            "• Edge TTS / Supertonic-3 / Piper — nutq sintezi\n"
+            "• Groq (bepul Llama) — tarjima + xulosalar\n"
+            "• ffmpeg — audio qayta ishlash\n"
+            "• SQLite — tarix + xatcho'plar + tarjima keshi\n\n"
+            "Free-tier API doirasida doimo bepul. Reklama va kuzatuvsiz.\n\n"
+            "Manba kodi GitHub da. To'liq qo'llanma — /help."
+        ),
+        "de": (
+            "🆘 Tez News Bot\n\n"
+            "Ein kostenloser, mehrsprachiger Open-Source-News-Begleiter.\n\n"
+            "Gebaut mit\n"
+            "• python-telegram-bot — Telegram-Integration\n"
+            "• httpx + selectolax — Scraping (statt Playwright)\n"
+            "• Edge TTS / Supertonic-3 / Piper — Sprachsynthese\n"
+            "• Groq (kostenlose Llama-Stufe) — Übersetzung + Zusammenfassungen\n"
+            "• ffmpeg — Audioverarbeitung\n"
+            "• SQLite — Verlauf + Lesezeichen + Übersetzungscache\n\n"
+            "Für immer kostenlos innerhalb der Free-Tier-API-Limits. Werbefrei.\n\n"
+            "Quellcode auf GitHub. /help für die ganze Anleitung."
+        ),
+        "tr": (
+            "🆘 Tez News Bot\n\n"
+            "Ücretsiz, açık kaynaklı, çok dilli haber asistanı.\n\n"
+            "Bileşenler\n"
+            "• python-telegram-bot — Telegram entegrasyonu\n"
+            "• httpx + selectolax — kazıma (Playwright yerine)\n"
+            "• Edge TTS / Supertonic-3 / Piper — konuşma sentezi\n"
+            "• Groq (ücretsiz Llama) — çeviri + özetler\n"
+            "• ffmpeg — ses işleme\n"
+            "• SQLite — geçmiş + yer imleri + çeviri önbelleği\n\n"
+            "Ücretsiz API kotaları dahilinde sonsuza kadar bedava. Reklamsız.\n\n"
+            "Kaynak GitHub'da. Tam rehber için /help."
+        ),
+    },
+
+    # Command-menu (the / autocomplete) labels — short and clear
+    'cmdmenu_start': {
+        "en": "Welcome and quick start",
+        "ru": "Приветствие и быстрый старт",
+        "uz": "Salomlashuv va tez boshlash",
+        "de": "Willkommen und Schnellstart",
+        "tr": "Karşılama ve hızlı başlangıç",
+    },
+    'cmdmenu_scrape': {
+        "en": "Scrape news (50, range, by title)",
+        "ru": "Сбор новостей (50, диапазон, по заголовку)",
+        "uz": "Yangiliklarni yig'ish (50, oraliq, sarlavha bo'yicha)",
+        "de": "News abrufen (50, Bereich, nach Titel)",
+        "tr": "Haber çek (50, aralık, başlığa göre)",
+    },
+    'cmdmenu_today': {
+        "en": "Today's news",
+        "ru": "Новости за сегодня",
+        "uz": "Bugungi yangiliklar",
+        "de": "Heutige Nachrichten",
+        "tr": "Bugünün haberleri",
+    },
+    'cmdmenu_auto': {
+        "en": "Schedule daily / weekly delivery",
+        "ru": "Ежедневная / еженедельная рассылка",
+        "uz": "Kunlik / haftalik yetkazib berish",
+        "de": "Tägliche / wöchentliche Lieferung",
+        "tr": "Günlük / haftalık teslim",
+    },
+    'cmdmenu_voice': {
+        "en": "TTS voice (per language)",
+        "ru": "Голос TTS (по языкам)",
+        "uz": "TTS ovozi (til bo'yicha)",
+        "de": "TTS-Stimme (pro Sprache)",
+        "tr": "TTS sesi (dile göre)",
+    },
+    'cmdmenu_speed': {
+        "en": "Audio playback speed",
+        "ru": "Скорость аудио",
+        "uz": "Audio tezligi",
+        "de": "Audiogeschwindigkeit",
+        "tr": "Ses hızı",
+    },
+    'cmdmenu_translate': {
+        "en": "Translate articles before TTS",
+        "ru": "Перевод статей перед озвучкой",
+        "uz": "TTS oldidan maqolalarni tarjima qilish",
+        "de": "Artikel vor TTS übersetzen",
+        "tr": "TTS öncesi makaleyi çevir",
+    },
+    'cmdmenu_summarize': {
+        "en": "Add 2-3 sentence summary",
+        "ru": "Добавить резюме на 2-3 предложения",
+        "uz": "2-3 jumlali xulosa qo'shish",
+        "de": "2-3-Satz-Zusammenfassung hinzufügen",
+        "tr": "2-3 cümlelik özet ekle",
+    },
+    'cmdmenu_find': {
+        "en": "Search past articles",
+        "ru": "Поиск по прошлым статьям",
+        "uz": "Eski maqolalardan qidirish",
+        "de": "In früheren Artikeln suchen",
+        "tr": "Geçmiş makalelerde ara",
+    },
+    'cmdmenu_bookmarks': {
+        "en": "List bookmarks (with tags)",
+        "ru": "Список закладок (с тегами)",
+        "uz": "Xatcho'plar ro'yxati (teglar bilan)",
+        "de": "Lesezeichen auflisten (mit Tags)",
+        "tr": "Yer imleri (etiketlerle)",
+    },
+    'cmdmenu_stats': {
+        "en": "Reading + audio stats",
+        "ru": "Статистика чтения и аудио",
+        "uz": "O'qish va audio statistikasi",
+        "de": "Lese- und Audio-Statistik",
+        "tr": "Okuma ve ses istatistikleri",
+    },
+    'cmdmenu_status': {
+        "en": "Show current settings",
+        "ru": "Текущие настройки",
+        "uz": "Joriy sozlamalar",
+        "de": "Aktuelle Einstellungen",
+        "tr": "Mevcut ayarlar",
+    },
+    'cmdmenu_help': {
+        "en": "Full guide",
+        "ru": "Полное руководство",
+        "uz": "To'liq qo'llanma",
+        "de": "Komplette Anleitung",
+        "tr": "Tam rehber",
+    },
+    'cmdmenu_about': {
+        "en": "About this bot",
+        "ru": "О боте",
+        "uz": "Bot haqida",
+        "de": "Über diesen Bot",
+        "tr": "Bu bot hakkında",
+    },
+
+    # Phase 15D: structured delivery card
+    'delivery_card': {
+        "en": (
+            "✅ Done\n\n"
+            "📊 Delivered\n"
+            "{summary}\n\n"
+            "📌 Posts: #{oldest} → #{newest}{next_batch}"
+        ),
+        "ru": (
+            "✅ Готово\n\n"
+            "📊 Доставлено\n"
+            "{summary}\n\n"
+            "📌 Посты: #{oldest} → #{newest}{next_batch}"
+        ),
+        "uz": (
+            "✅ Tayyor\n\n"
+            "📊 Yetkazib berildi\n"
+            "{summary}\n\n"
+            "📌 Postlar: #{oldest} → #{newest}{next_batch}"
+        ),
+        "de": (
+            "✅ Fertig\n\n"
+            "📊 Geliefert\n"
+            "{summary}\n\n"
+            "📌 Posts: #{oldest} → #{newest}{next_batch}"
+        ),
+        "tr": (
+            "✅ Tamam\n\n"
+            "📊 Teslim edildi\n"
+            "{summary}\n\n"
+            "📌 Gönderiler: #{oldest} → #{newest}{next_batch}"
+        ),
+    },
+    'delivery_next_batch': {
+        "en": "\n📥 Next batch: /scrape {start}-{end}",
+        "ru": "\n📥 Следующая партия: /scrape {start}-{end}",
+        "uz": "\n📥 Keyingi partiya: /scrape {start}-{end}",
+        "de": "\n📥 Nächste Charge: /scrape {start}-{end}",
+        "tr": "\n📥 Sonraki parti: /scrape {start}-{end}",
+    },
+    'delivery_line_articles': {
+        "en": "  • {n} articles",
+        "ru": "  • {n} статей",
+        "uz": "  • {n} ta maqola",
+        "de": "  • {n} Artikel",
+        "tr": "  • {n} makale",
+    },
+    'delivery_line_audio': {
+        "en": "  • {n} voice messages",
+        "ru": "  • {n} голосовых сообщений",
+        "uz": "  • {n} ta ovozli xabar",
+        "de": "  • {n} Sprachnachrichten",
+        "tr": "  • {n} sesli mesaj",
+    },
+    'delivery_line_images': {
+        "en": "  • {n} images",
+        "ru": "  • {n} изображений",
+        "uz": "  • {n} ta rasm",
+        "de": "  • {n} Bilder",
+        "tr": "  • {n} görsel",
+    },
+
     'translate_status_off': {
         "en": "Article translation is OFF. /translate <lang> to enable (lang: en, ru, uz, de, tr).",
         "ru": "Перевод статей ВЫКЛ. /translate <язык> чтобы включить (en/ru/uz/de/tr).",
