@@ -67,7 +67,29 @@ def test_add_remove_bookmark(temp_settings_path):
     s.add_bookmark(35808)
     s.add_bookmark(35808)  # idempotent
     s.add_bookmark(35900)
-    assert sorted(s.get_setting("bookmarked_post_ids")) == [35808, 35900]
+    ids = sorted(int(b["id"]) for b in s.get_bookmarks())
+    assert ids == [35808, 35900]
     assert s.remove_bookmark(35808) is True
     assert s.remove_bookmark(99999) is False
-    assert s.get_setting("bookmarked_post_ids") == [35900]
+    remaining = [int(b["id"]) for b in s.get_bookmarks()]
+    assert remaining == [35900]
+
+
+def test_bookmark_tags_added_and_merged(temp_settings_path):
+    s.add_bookmark(100, tags=["economy"])
+    s.add_bookmark(100, tags=["interviews"])  # merges
+    items = s.get_bookmarks()
+    assert len(items) == 1
+    assert sorted(items[0]["tags"]) == ["economy", "interviews"]
+
+
+def test_legacy_bookmark_format_migrates(temp_settings_path):
+    """Old format: bookmarked_post_ids = [int]. New: bookmarks = [{id, tags}]."""
+    import json
+    temp_settings_path.write_text(json.dumps({
+        "bookmarked_post_ids": [35808, 35809],
+    }))
+    items = s.get_bookmarks()
+    assert sorted(int(b["id"]) for b in items) == [35808, 35809]
+    for b in items:
+        assert b["tags"] == []

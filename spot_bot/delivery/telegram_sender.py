@@ -51,6 +51,7 @@ def _short_caption(title: str, fallback_body: str = "") -> str:
 
 async def send_articles_as_text(bot: Bot, chat_id: int, articles: list,
                                 bookmark_label: str = "🔖 Save",
+                                share_label: str = "📤 Share",
                                 inline_images: bool = False):
     """Send cleaned articles as Telegram messages.
 
@@ -88,14 +89,18 @@ async def send_articles_as_text(bot: Bot, chat_id: int, articles: list,
 
         full_text = header + _escape_html(body) + footer
 
-        # Build a save button if we have a numeric post ID; attach to the
-        # final chunk only (multi-chunk articles otherwise duplicate it).
+        # Build save + share buttons if we have a numeric post ID; attach
+        # to the final chunk only (multi-chunk articles otherwise duplicate).
         save_kb = None
         if post_id and post_id.isdigit():
             save_kb = InlineKeyboardMarkup([[
                 InlineKeyboardButton(
                     bookmark_label,
                     callback_data=f"bookmark_{post_id}",
+                ),
+                InlineKeyboardButton(
+                    share_label,
+                    callback_data=f"share_{post_id}",
                 ),
             ]])
 

@@ -69,29 +69,59 @@ def remember_delivered(post_ids):
     save_settings(data)
 
 
-def add_bookmark(post_id):
-    """Add a numeric post ID to bookmarks (no-op if already there)."""
+def _bookmarks_from_data(data):
+    """Read bookmarks from settings dict, auto-migrating from the old
+    `bookmarked_post_ids: [int]` format to the new
+    `bookmarks: [{id: int, tags: [str]}]` format."""
+    items = data.get("bookmarks")
+    if items is not None:
+        return list(items)
+    legacy = list(data.get("bookmarked_post_ids") or [])
+    return [{"id": int(pid), "tags": []} for pid in legacy]
+
+
+def get_bookmarks():
+    """Return all bookmarks as a list of {id, tags} dicts."""
+    return _bookmarks_from_data(load_settings())
+
+
+def add_bookmark(post_id, tags=None):
+    """Add (or update tags on) a bookmark. tags is a list of strings."""
     data = load_settings()
-    bookmarks = list(data.get("bookmarked_post_ids") or [])
-    if int(post_id) not in bookmarks:
-        bookmarks.append(int(post_id))
-        bookmarks.sort()
-        data["bookmarked_post_ids"] = bookmarks
-        save_settings(data)
+    items = _bookmarks_from_data(data)
+    target = int(post_id)
+    new_tags = [t.strip().lower() for t in (tags or []) if t and t.strip()]
+    found = False
+    for it in items:
+        if int(it.get("id", 0)) == target:
+            existing_tags = list(it.get("tags") or [])
+            for t in new_tags:
+                if t not in existing_tags:
+                    existing_tags.append(t)
+            it["tags"] = existing_tags
+            found = True
+            break
+    if not found:
+        items.append({"id": target, "tags": new_tags})
+    items.sort(key=lambda x: int(x.get("id", 0)))
+    data["bookmarks"] = items
+    # Keep legacy key in sync (one release of overlap) for safety.
+    data["bookmarked_post_ids"] = [int(it["id"]) for it in items]
+    save_settings(data)
 
 
 def remove_bookmark(post_id):
-    """Remove a numeric post ID from bookmarks if present. Returns True if
-    something was removed."""
+    """Remove a numeric post ID from bookmarks. Returns True if removed."""
     data = load_settings()
-    bookmarks = list(data.get("bookmarked_post_ids") or [])
+    items = _bookmarks_from_data(data)
     target = int(post_id)
-    if target in bookmarks:
-        bookmarks.remove(target)
-        data["bookmarked_post_ids"] = bookmarks
-        save_settings(data)
-        return True
-    return False
+    new_items = [it for it in items if int(it.get("id", 0)) != target]
+    if len(new_items) == len(items):
+        return False
+    data["bookmarks"] = new_items
+    data["bookmarked_post_ids"] = [int(it["id"]) for it in new_items]
+    save_settings(data)
+    return True
 
 
 def load_settings():

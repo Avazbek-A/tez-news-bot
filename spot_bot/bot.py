@@ -27,7 +27,7 @@ from spot_bot.config import (
 )
 from spot_bot.settings import (
     get_setting, set_setting,
-    remember_delivered, add_bookmark, remove_bookmark,
+    remember_delivered, add_bookmark, remove_bookmark, get_bookmarks,
     get_sources, add_source, remove_source,
 )
 from spot_bot.translations import t
@@ -410,6 +410,7 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             await send_articles_as_text(
                 bot, chat_id, result.articles,
                 bookmark_label=t("bookmark_save_btn", lang),
+                share_label=t("share_btn", lang),
                 inline_images=text_inline_images,
             )
 
@@ -480,6 +481,21 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         # for /stats analytics. Best-effort — never blocks delivery.
         try:
             history_db.record_articles(result.articles)
+            # If audio was generated, record per-article durations so
+            # /stats can sum them.
+            if result.audio_results:
+                from spot_bot.audio.voice import get_audio_duration
+                for article, audio_path in result.audio_results:
+                    if not audio_path:
+                        continue
+                    try:
+                        dur = await get_audio_duration(audio_path)
+                        if dur > 0:
+                            history_db.update_audio_duration(
+                                article.get("id", ""), dur,
+                            )
+                    except Exception:
+                        pass
         except Exception as e:
             logger.warning("[history-db] record_articles failed: %s", e)
 
@@ -1359,6 +1375,41 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# /stats — analytics from history_db
+# ---------------------------------------------------------------------------
+
+async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import time as _time
+    lang = _get_lang()
+    now = int(_time.time())
+    week_ago = now - 7 * 86400
+
+    s_total = history_db.stats(since_unix=0)
+    s_week = history_db.stats(since_unix=week_ago)
+
+    bookmarks = get_bookmarks()
+    n_bookmarks = len(bookmarks)
+
+    days_active = 0
+    if s_total["first_delivery"] > 0:
+        days_active = max(1, (now - s_total["first_delivery"]) // 86400)
+
+    total_audio_min = int(s_total["total_audio_sec"] // 60)
+    week_audio_min = int(s_week["total_audio_sec"] // 60)
+
+    text = t(
+        "stats_body", lang,
+        articles_week=s_week["n_articles"],
+        articles_total=s_total["n_articles"],
+        audio_week=week_audio_min,
+        audio_total=total_audio_min,
+        bookmarks=n_bookmarks,
+        days_active=days_active,
+    )
+    await update.message.reply_text(text)
+
+
+# ---------------------------------------------------------------------------
 # /find <query> — search delivered articles
 # ---------------------------------------------------------------------------
 
@@ -1445,19 +1496,55 @@ async def cmd_unread(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 async def cmd_bookmarks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/bookmarks [tag] — list saved articles, optionally filtered by tag."""
     lang = _get_lang()
-    bookmarks = get_setting("bookmarked_post_ids") or []
-    if not bookmarks:
-        await update.message.reply_text(t("bookmarks_empty", lang))
+    args = context.args or []
+    tag_filter = args[0].strip().lower() if args else None
+
+    items = get_bookmarks()
+    if tag_filter:
+        items = [b for b in items if tag_filter in (b.get("tags") or [])]
+    if not items:
+        if tag_filter:
+            await update.message.reply_text(
+                t("bookmarks_empty_tag", lang, tag=tag_filter)
+            )
+        else:
+            await update.message.reply_text(t("bookmarks_empty", lang))
         return
 
-    lines = [t("bookmarks_header", lang, n=len(bookmarks))]
-    for pid in sorted(bookmarks, reverse=True):
-        lines.append(f"#{pid}  ·  /scrape {pid}-{pid}")
+    items.sort(key=lambda x: int(x.get("id", 0)), reverse=True)
+    if tag_filter:
+        lines = [t("bookmarks_header_tag", lang, n=len(items), tag=tag_filter)]
+    else:
+        lines = [t("bookmarks_header", lang, n=len(items))]
+    for it in items:
+        pid = int(it.get("id", 0))
+        tags = it.get("tags") or []
+        tag_str = " " + ", ".join(f"#{tg}" for tg in tags) if tags else ""
+        lines.append(f"#{pid}{tag_str}  ·  /scrape {pid}-{pid}")
     text = "\n".join(lines)
     if len(text) > 4000:
         text = text[:3990] + "\n…"
     await update.message.reply_text(text)
+
+
+async def cmd_bookmark(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/bookmark <id> [tags...] — save (or update tags on) a post ID."""
+    args = context.args or []
+    lang = _get_lang()
+    if not args or not args[0].lstrip("#").isdigit():
+        await update.message.reply_text(t("bookmark_usage", lang))
+        return
+    pid = int(args[0].lstrip("#"))
+    tags = [a.strip().lower() for a in args[1:] if a.strip()]
+    add_bookmark(pid, tags=tags)
+    if tags:
+        await update.message.reply_text(
+            t("bookmark_added_tags", lang, id=pid, tags=", ".join(tags))
+        )
+    else:
+        await update.message.reply_text(t("bookmark_added", lang, id=pid))
 
 
 # ---------------------------------------------------------------------------
@@ -1475,6 +1562,75 @@ async def cmd_unbookmark(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t("unbookmark_removed", lang, id=pid))
     else:
         await update.message.reply_text(t("unbookmark_not_found", lang, id=pid))
+
+
+async def _handle_share_callback(update: Update,
+                                 context: ContextTypes.DEFAULT_TYPE):
+    """Tap 📤 Share — sends a forwardable message containing a clean
+    text preview of the article + its public Telegram link, suitable
+    for forwarding to another chat.
+    """
+    query = update.callback_query
+    lang = _get_lang()
+    chat_id = query.message.chat_id if query.message else update.effective_chat.id
+    data = query.data or ""
+    if not data.startswith("share_"):
+        return
+    raw = data[len("share_"):]
+    if not raw.isdigit():
+        try:
+            await query.answer()
+        except Exception:
+            pass
+        return
+    pid = int(raw)
+
+    # Look up the article from history; if missing, fall back to the
+    # parent message's text.
+    matches = history_db.find(str(pid), limit=1)
+    if not matches:
+        # Try the parent message's text
+        title_preview = (query.message.text or "")[:200] if query.message else ""
+        body_preview = ""
+    else:
+        m = matches[0]
+        title_preview = m.get("title") or ""
+        body_preview = (m.get("body_head") or "")[:280]
+
+    # Build a share-friendly message with the public Telegram permalink.
+    sources = get_sources()
+    source_url = sources[0]["url"] if sources else "https://t.me/s/spotuz"
+    # Convert https://t.me/s/<channel> to https://t.me/<channel>/<post_id>
+    public_link = source_url.replace("/s/", "/").rstrip("/") + f"/{pid}"
+
+    parts = []
+    if title_preview:
+        parts.append(f"<b>{_html_escape(title_preview)}</b>")
+    if body_preview:
+        parts.append(_html_escape(body_preview))
+    parts.append(public_link)
+    text = "\n\n".join(parts)
+
+    try:
+        await query.answer()
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=text,
+            parse_mode="HTML",
+            disable_web_page_preview=False,
+        )
+    except Exception as e:
+        logger.warning("[share] send failed: %s", e)
+        try:
+            await query.answer(f"Error: {e}", show_alert=True)
+        except Exception:
+            pass
+
+
+def _html_escape(text: str) -> str:
+    return (text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;"))
 
 
 async def _handle_bookmark_callback(update: Update,
@@ -2037,7 +2193,9 @@ def create_app():
     app.add_handler(CommandHandler("find", cmd_find))
     app.add_handler(CommandHandler("resume", cmd_resume))
     app.add_handler(CommandHandler("unread", cmd_unread))
+    app.add_handler(CommandHandler("bookmark", cmd_bookmark))
     app.add_handler(CommandHandler("bookmarks", cmd_bookmarks))
+    app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("unbookmark", cmd_unbookmark))
     app.add_handler(CommandHandler("sources", cmd_sources))
     app.add_handler(CommandHandler("addsource", cmd_addsource))
@@ -2053,6 +2211,10 @@ def create_app():
     app.add_handler(CallbackQueryHandler(
         _handle_bookmark_callback,
         pattern=r"^bookmark_",
+    ))
+    app.add_handler(CallbackQueryHandler(
+        _handle_share_callback,
+        pattern=r"^share_",
     ))
     app.add_handler(CallbackQueryHandler(
         _handle_resume_mark,

@@ -52,9 +52,11 @@ _STRINGS = {
             "Reading log:\n"
             "/find <query> — Search past delivered articles\n"
             "/unread — Count new articles since last scrape\n"
-            "/bookmarks — List saved articles\n"
+            "/bookmark <id> [tags...] — Save with optional tags\n"
+            "/bookmarks [tag] — List saved (or filter by tag)\n"
             "/unbookmark <id> — Remove a bookmark\n"
-            "/resume — Jump to last marked voice message (📍 button)\n\n"
+            "/resume — Jump to last marked voice message (📍 button)\n"
+            "/stats — Reading + audio totals\n\n"
             "Sources:\n"
             "/sources — List configured sources\n"
             "/addsource <type> <url> [label] — Add (type: telegram or rss)\n"
@@ -106,9 +108,11 @@ _STRINGS = {
             "История:\n"
             "/find <запрос> — Поиск по полученным статьям\n"
             "/unread — Сколько новых статей с прошлого сбора\n"
-            "/bookmarks — Список сохранённых статей\n"
+            "/bookmark <id> [теги...] — Сохранить с тегами\n"
+            "/bookmarks [тег] — Список (фильтр по тегу)\n"
             "/unbookmark <id> — Удалить закладку\n"
-            "/resume — Перейти к отмеченному голосовому (кнопка 📍)\n\n"
+            "/resume — Перейти к отмеченному голосовому (кнопка 📍)\n"
+            "/stats — Статистика чтения и аудио\n\n"
             "Источники:\n"
             "/sources — Список настроенных источников\n"
             "/addsource <тип> <url> [название] — Добавить (тип: telegram или rss)\n"
@@ -160,9 +164,11 @@ _STRINGS = {
             "O'qish tarixi:\n"
             "/find <so'rov> — Olingan maqolalar orasidan qidirish\n"
             "/unread — Oxirgi yig'ishdan beri qancha yangi maqola\n"
-            "/bookmarks — Saqlangan maqolalar ro'yxati\n"
+            "/bookmark <id> [teglar...] — Teg bilan saqlash\n"
+            "/bookmarks [teg] — Ro'yxat (teg bo'yicha filtr)\n"
             "/unbookmark <id> — Xatcho'pni olib tashlash\n"
-            "/resume — Belgilangan ovozli xabarga o'tish (📍 tugmasi)\n\n"
+            "/resume — Belgilangan ovozli xabarga o'tish (📍 tugmasi)\n"
+            "/stats — O'qish va audio statistikasi\n\n"
             "Manbalar:\n"
             "/sources — Sozlangan manbalar ro'yxati\n"
             "/addsource <turi> <url> [nomi] — Qo'shish (turi: telegram yoki rss)\n"
@@ -701,6 +707,43 @@ _STRINGS = {
         "en": "Unknown choice '{choice}'. Use /summarize on or /summarize off.",
         "ru": "Непонятное значение '{choice}'. /summarize on или /summarize off.",
         "uz": "Noma'lum '{choice}'. /summarize on yoki /summarize off.",
+    },
+
+    # Phase 9: stats, bookmark tags, share
+    "stats_body": {
+        "en": "📊 Stats\n\nLast 7 days: {articles_week} articles, {audio_week} min audio\nAll time: {articles_total} articles, {audio_total} min audio\nBookmarks: {bookmarks}\nDays active: {days_active}",
+        "ru": "📊 Статистика\n\nЗа 7 дней: {articles_week} статей, {audio_week} мин аудио\nВсего: {articles_total} статей, {audio_total} мин аудио\nЗакладок: {bookmarks}\nДней активности: {days_active}",
+        "uz": "📊 Statistika\n\nSo'nggi 7 kun: {articles_week} ta maqola, {audio_week} daqiqa audio\nJami: {articles_total} ta maqola, {audio_total} daqiqa audio\nXatcho'plar: {bookmarks}\nFaol kunlar: {days_active}",
+    },
+    "bookmark_usage": {
+        "en": "Usage: /bookmark <post_id> [tag1 tag2 ...]\nExample: /bookmark 35808 economy interviews",
+        "ru": "Использование: /bookmark <post_id> [тег1 тег2 ...]\nПример: /bookmark 35808 экономика интервью",
+        "uz": "Foydalanish: /bookmark <post_id> [teg1 teg2 ...]\nMisol: /bookmark 35808 iqtisodiyot intervyu",
+    },
+    "bookmark_added": {
+        "en": "🔖 Saved #{id}",
+        "ru": "🔖 Сохранено #{id}",
+        "uz": "🔖 Saqlandi #{id}",
+    },
+    "bookmark_added_tags": {
+        "en": "🔖 Saved #{id} (tags: {tags})",
+        "ru": "🔖 Сохранено #{id} (теги: {tags})",
+        "uz": "🔖 Saqlandi #{id} (teglar: {tags})",
+    },
+    "bookmarks_header_tag": {
+        "en": "🔖 {n} bookmark(s) tagged #{tag}:",
+        "ru": "🔖 {n} закладок с тегом #{tag}:",
+        "uz": "🔖 #{tag} tegli {n} ta xatcho'p:",
+    },
+    "bookmarks_empty_tag": {
+        "en": "No bookmarks tagged #{tag}.",
+        "ru": "Закладок с тегом #{tag} нет.",
+        "uz": "#{tag} tegli xatcho'plar yo'q.",
+    },
+    "share_btn": {
+        "en": "📤 Share",
+        "ru": "📤 Поделиться",
+        "uz": "📤 Ulashish",
     },
 
     # /auto cron-mode strings
