@@ -116,7 +116,13 @@ async def _wav_to_mp3(wav_path: str, mp3_path: str,
     return os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 0
 
 
-_SYNTH_TIMEOUT_SECONDS = 90
+# Per-call synthesis timeout. Supertonic is CPU-bound and runs on the
+# whole article body in one shot (no chunking on this path). On a
+# shared Railway vCPU we measured ~25 chars/sec, so a 5000-char
+# interview legitimately takes ~200s. Keep the cap generous enough to
+# cover long-form articles, low enough to bail out of a genuinely
+# stuck call.
+_SYNTH_TIMEOUT_SECONDS = 300
 
 
 async def generate_audio_supertonic(text: str, output_path: str,
