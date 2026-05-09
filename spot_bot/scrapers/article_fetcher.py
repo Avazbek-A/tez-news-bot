@@ -4,6 +4,9 @@ from playwright.async_api import async_playwright
 from spot_bot.config import MAX_CONCURRENT_FETCHES, USER_AGENT
 from spot_bot.cleaners.html_cleaner import clean_html, clean_telegram_text
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 # Minimum interval between progress reports (seconds), matched to TTS pacing.
 _PROGRESS_DEBOUNCE = 2.0
@@ -62,7 +65,7 @@ async def fetch_articles(posts, include_images=False, progress_callback=None,
         articles = []
         for result in results:
             if isinstance(result, Exception):
-                print(f"Fetch error: {result}")
+                logger.warning(f"Fetch error: {result}")
                 continue
             if result:
                 articles.append(result)
@@ -133,7 +136,7 @@ async def _process_post(context, post, semaphore, include_images=False,
 
                 content = await page.content()
             except Exception as nav_e:
-                print(f"Nav error for {link}: {nav_e}")
+                logger.warning(f"Nav error for {link}: {nav_e}")
                 return {
                     "title": "",
                     "body": telegram_text,
@@ -171,7 +174,7 @@ async def _process_post(context, post, semaphore, include_images=False,
             }
 
         except Exception as e:
-            print(f"Error fetching {post.get('id')}: {e}")
+            logger.warning(f"Error fetching {post.get('id')}: {e}")
             return {
                 "title": "",
                 "body": telegram_text,

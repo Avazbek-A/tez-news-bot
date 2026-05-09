@@ -16,6 +16,9 @@ import shutil
 import subprocess
 import tempfile
 
+import logging
+logger = logging.getLogger(__name__)
+
 # Telegram caps voice messages at 60 minutes. Leave a small safety margin
 # so duration probing rounding errors can't push us over.
 VOICE_MAX_DURATION_SECONDS = 58 * 60
@@ -82,7 +85,7 @@ async def convert_mp3_to_opus(mp3_path, ogg_path):
         ogg_path,
     ], timeout=180)
     if rc != 0:
-        print(f"ffmpeg convert failed for {mp3_path}: {stderr.decode()[:300]}")
+        logger.warning(f"ffmpeg convert failed for {mp3_path}: {stderr.decode()[:300]}")
         return None
     if not os.path.exists(ogg_path) or os.path.getsize(ogg_path) == 0:
         return None
@@ -120,7 +123,7 @@ async def concat_mp3_to_opus(mp3_paths, ogg_path):
             ogg_path,
         ], timeout=600)
         if rc != 0:
-            print(f"ffmpeg concat-encode failed: {stderr.decode()[:300]}")
+            logger.warning(f"ffmpeg concat-encode failed: {stderr.decode()[:300]}")
             return None
         if not os.path.exists(ogg_path) or os.path.getsize(ogg_path) == 0:
             return None

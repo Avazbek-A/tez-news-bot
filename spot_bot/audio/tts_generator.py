@@ -6,6 +6,9 @@ import time
 import edge_tts
 from spot_bot.config import DEFAULT_VOICE, TTS_RATE, MAX_CONCURRENT_TTS
 
+import logging
+logger = logging.getLogger(__name__)
+
 # Timeout per article (seconds). Most articles finish in 5-15s.
 PER_ARTICLE_TIMEOUT = 60
 
@@ -106,7 +109,7 @@ async def _tts_to_file(text, output_path, voice, rate, timeout):
             return output_path
         return None
     except asyncio.TimeoutError:
-        print(f"TTS timeout after {timeout}s on {len(text)}-char chunk, skipping")
+        logger.warning(f"TTS timeout after {timeout}s on {len(text)}-char chunk, skipping")
         if os.path.exists(output_path):
             try:
                 os.remove(output_path)
@@ -114,7 +117,7 @@ async def _tts_to_file(text, output_path, voice, rate, timeout):
                 pass
         return None
     except Exception as e:
-        print(f"TTS error: {e}")
+        logger.warning(f"TTS error: {e}")
         if os.path.exists(output_path):
             try:
                 os.remove(output_path)
@@ -169,9 +172,9 @@ async def generate_audio(text, output_path, voice=DEFAULT_VOICE, rate=TTS_RATE,
                 chunk_paths.append(chunk_path)
                 successes += 1
             else:
-                print(
-                    f"TTS chunk {i + 1}/{len(chunks)} failed "
-                    f"({len(chunk)} chars), continuing"
+                logger.warning(
+                    "TTS chunk %d/%d failed (%d chars), continuing",
+                    i + 1, len(chunks), len(chunk),
                 )
 
         if not chunk_paths:
@@ -186,9 +189,9 @@ async def generate_audio(text, output_path, voice=DEFAULT_VOICE, rate=TTS_RATE,
                     out.write(f.read())
 
         if successes < len(chunks):
-            print(
-                f"TTS partial: {successes}/{len(chunks)} chunks succeeded "
-                f"for {output_path}"
+            logger.warning(
+                "TTS partial: %d/%d chunks succeeded for %s",
+                successes, len(chunks), output_path,
             )
 
         return output_path

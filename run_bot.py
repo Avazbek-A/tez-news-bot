@@ -6,14 +6,16 @@ import time
 
 from telegram.error import Conflict
 
-from spot_bot.bot import create_app
-from spot_bot.config import BOT_TOKEN
-from spot_bot.observability import init_sentry
+from spot_bot.logging_setup import configure_logging
 
-logging.basicConfig(
-    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    level=logging.INFO,
-)
+# Configure logging first, before any spot_bot module wires its own loggers.
+configure_logging()
+
+from spot_bot.bot import create_app  # noqa: E402
+from spot_bot.config import BOT_TOKEN  # noqa: E402
+from spot_bot.observability import init_sentry  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 
 # How many times to retry app.run_polling() if Telegram returns a Conflict
@@ -25,14 +27,13 @@ _STARTUP_RETRY_SECONDS = 5
 
 def main():
     if not BOT_TOKEN or BOT_TOKEN == "your_bot_token_here":
-        print("ERROR: Set your BOT_TOKEN in the .env file.")
-        print("  1. Talk to @BotFather on Telegram to create a bot")
-        print("  2. Copy the token into .env: BOT_TOKEN=123456:ABC-DEF...")
+        logger.error("BOT_TOKEN not set. Configure it via environment "
+                     "or .env (BOT_TOKEN=123456:ABC-DEF...).")
         return
 
     init_sentry()
 
-    print("Starting Spot News Bot...")
+    logger.info("Starting Spot News Bot...")
     app = create_app()
     # Heartbeat scheduling is inside bot._post_init so it runs once the
     # bot's event loop is up and stays up.
@@ -47,16 +48,16 @@ def main():
             return
         except Conflict:
             if attempt >= _STARTUP_MAX_ATTEMPTS:
-                print(
-                    f"Persistent getUpdates Conflict after "
-                    f"{_STARTUP_MAX_ATTEMPTS} attempts. Another instance "
-                    f"appears to be holding the long-poll. Giving up."
+                logger.error(
+                    "Persistent getUpdates Conflict after %d attempts. "
+                    "Another instance appears to be holding the long-poll. "
+                    "Giving up.",
+                    _STARTUP_MAX_ATTEMPTS,
                 )
                 raise
-            print(
-                f"Startup Conflict (attempt {attempt}/"
-                f"{_STARTUP_MAX_ATTEMPTS}); retrying in "
-                f"{_STARTUP_RETRY_SECONDS}s..."
+            logger.warning(
+                "Startup Conflict (attempt %d/%d); retrying in %ds...",
+                attempt, _STARTUP_MAX_ATTEMPTS, _STARTUP_RETRY_SECONDS,
             )
             time.sleep(_STARTUP_RETRY_SECONDS)
 

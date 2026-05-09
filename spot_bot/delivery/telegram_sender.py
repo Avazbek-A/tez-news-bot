@@ -26,6 +26,9 @@ from spot_bot.audio.voice import (
 )
 from spot_bot.translations import t
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 # Telegram voice-message size cap from bots is 50MB (same as documents).
 _VOICE_MAX_BYTES = 50 * 1024 * 1024
@@ -113,9 +116,7 @@ async def send_articles_as_text(bot: Bot, chat_id: int, articles: list,
             try:
                 await send_article_image_album(bot, chat_id, article)
             except Exception as e:
-                print(f"[inline-images] album send failed: {e}")
-
-
+                logger.warning(f"[inline-images] album send failed: {e}")
 async def send_articles_as_file(bot: Bot, chat_id: int, articles: list,
                                 filename: str = "Spot_News.txt"):
     """Send cleaned articles as a .txt document attachment.
@@ -200,7 +201,7 @@ async def _send_image_album(bot: Bot, chat_id: int, image_dicts: list,
             )
             return 1
         except Exception as e:
-            print(f"[album] single-photo send failed: {e}")
+            logger.warning(f"[album] single-photo send failed: {e}")
             return 0
 
     # Multi-image: chunk into media groups of <= 10
@@ -218,7 +219,7 @@ async def _send_image_album(bot: Bot, chat_id: int, image_dicts: list,
             sent_total += len(chunk)
             await asyncio.sleep(0.5)
         except Exception as e:
-            print(f"[album] media_group send failed ({len(chunk)} items): {e}")
+            logger.warning(f"[album] media_group send failed ({len(chunk)} items): {e}")
             # Best-effort fallback: try each photo individually so at
             # least the working URLs deliver.
             for img in chunk:
@@ -227,8 +228,7 @@ async def _send_image_album(bot: Bot, chat_id: int, image_dicts: list,
                     sent_total += 1
                     await asyncio.sleep(0.3)
                 except Exception as e2:
-                    print(f"[album] fallback send_photo failed: {e2}")
-
+                    logger.warning(f"[album] fallback send_photo failed: {e2}")
     return sent_total
 
 
@@ -285,13 +285,12 @@ async def send_voice_messages(bot: Bot, chat_id: int, results: list,
         Number of voice messages successfully sent.
     """
     has_ffmpeg = ffmpeg_available()
-    print(
-        f"[voice] entering send_voice_messages, "
-        f"n_results={len(results)}, ffmpeg={has_ffmpeg}",
-        flush=True,
+    logger.info(
+        "[voice] entering send_voice_messages, n_results=%d, ffmpeg=%s",
+        len(results), has_ffmpeg,
     )
     if not has_ffmpeg:
-        print(
+        logger.warning(
             "[voice] ffmpeg not on PATH — falling back to music-track audio "
             "(no mobile speed control)."
         )
@@ -308,16 +307,16 @@ async def send_voice_messages(bot: Bot, chat_id: int, results: list,
             else mp3_path + ".ogg"
         out_path = await convert_mp3_to_opus(mp3_path, ogg_path)
         if not out_path:
-            print(f"Voice convert failed for {mp3_path}, skipping")
+            logger.warning(f"Voice convert failed for {mp3_path}, skipping")
             continue
 
         duration = await get_audio_duration(out_path)
         # Within-article splitting if a single article exceeds the cap
         # (very rare — would be a 60+ min interview).
         if duration > VOICE_MAX_DURATION_SECONDS:
-            print(
-                f"Article voice exceeds {VOICE_MAX_DURATION_SECONDS}s "
-                f"({duration:.0f}s); splitting"
+            logger.warning(
+                "Article voice exceeds %ds (%.0fs); splitting",
+                VOICE_MAX_DURATION_SECONDS, duration,
             )
             sub_count = await _send_voice_split(
                 bot, chat_id, out_path, article,
@@ -333,7 +332,7 @@ async def send_voice_messages(bot: Bot, chat_id: int, results: list,
         try:
             file_size = os.path.getsize(out_path)
             if file_size > _VOICE_MAX_BYTES:
-                print(f"Voice file too large ({file_size} bytes), skipping")
+                logger.warning(f"Voice file too large ({file_size} bytes), skipping")
                 continue
 
             caption = _short_caption(
@@ -356,9 +355,9 @@ async def send_voice_messages(bot: Bot, chat_id: int, results: list,
                 try:
                     await send_article_image_album(bot, chat_id, article)
                 except Exception as e:
-                    print(f"[inline-images] album send failed: {e}")
+                    logger.warning(f"[inline-images] album send failed: {e}")
         except Exception as e:
-            print(f"Error sending voice message: {e}")
+            logger.warning(f"Error sending voice message: {e}")
         finally:
             try:
                 os.remove(out_path)
@@ -384,13 +383,12 @@ async def send_combined_voice(bot: Bot, chat_id: int, results: list,
         Number of underlying article-mp3s successfully delivered.
     """
     has_ffmpeg = ffmpeg_available()
-    print(
-        f"[voice] entering send_combined_voice, "
-        f"n_results={len(results)}, ffmpeg={has_ffmpeg}",
-        flush=True,
+    logger.info(
+        "[voice] entering send_combined_voice, n_results=%d, ffmpeg=%s",
+        len(results), has_ffmpeg,
     )
     if not has_ffmpeg:
-        print(
+        logger.warning(
             "[voice] ffmpeg not on PATH — falling back to per-article "
             "music-track audio for combined mode."
         )
@@ -428,8 +426,9 @@ async def send_combined_voice(bot: Bot, chat_id: int, results: list,
 
             duration = await get_audio_duration(out)
             if os.path.getsize(out) > _VOICE_MAX_BYTES:
-                print(
-                    f"Combined voice part {i + 1} exceeds size cap, skipping"
+                logger.warning(
+                    "Combined voice part %d exceeds size cap, skipping",
+                    i + 1,
                 )
                 try:
                     os.remove(out)
@@ -471,9 +470,9 @@ async def send_combined_voice(bot: Bot, chat_id: int, results: list,
                         if chapters:
                             await _send_chapter_list(bot, chat_id, chapters, lang)
                     except Exception as e:
-                        print(f"Chapter list send failed: {e}")
+                        logger.warning(f"Chapter list send failed: {e}")
             except Exception as e:
-                print(f"Error sending combined voice part {i + 1}: {e}")
+                logger.warning(f"Error sending combined voice part {i + 1}: {e}")
             finally:
                 try:
                     os.remove(out)
@@ -540,7 +539,7 @@ async def _send_voice_split(bot, chat_id, ogg_path, article, total_duration):
                 sent += 1
                 await asyncio.sleep(0.5)
             except Exception as e:
-                print(f"Error sending split-voice part: {e}")
+                logger.warning(f"Error sending split-voice part: {e}")
     finally:
         for f in os.listdir(chunk_dir):
             try:
@@ -581,9 +580,7 @@ async def _send_chapter_list(bot: Bot, chat_id: int, chapters: list, lang: str):
     try:
         await bot.send_message(chat_id=chat_id, text=text)
     except Exception as e:
-        print(f"Chapter list send error: {e}")
-
-
+        logger.warning(f"Chapter list send error: {e}")
 async def _send_audio_fallback(bot: Bot, chat_id: int, results: list):
     """Fallback when ffmpeg isn't available: send each article's MP3 as a
     Telegram music track (sendAudio). No mobile speed control, but better
@@ -609,8 +606,7 @@ async def _send_audio_fallback(bot: Bot, chat_id: int, results: list):
             sent += 1
             await asyncio.sleep(0.5)
         except Exception as e:
-            print(f"[voice fallback] error sending audio: {e}")
-
+            logger.warning(f"[voice fallback] error sending audio: {e}")
     return sent
 
 

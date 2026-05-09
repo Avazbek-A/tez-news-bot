@@ -16,6 +16,9 @@ from spot_bot.audio.tts_generator import generate_batch, cleanup_audio_files
 from spot_bot.config import DEFAULT_VOICE, TTS_RATE
 from spot_bot.settings import get_setting
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class PipelineResult:
@@ -276,9 +279,9 @@ async def _collect_from_sources(sources, total_count, cancel_event,
                 )
                 rss_articles.extend(got)
             else:
-                print(f"[multi-source] unknown source type: {stype}")
+                logger.warning(f"[multi-source] unknown source type: {stype}")
         except Exception as e:
-            print(f"[multi-source] {sid} failed: {e}")
+            logger.warning(f"[multi-source] {sid} failed: {e}")
             try:
                 import sentry_sdk
                 sentry_sdk.capture_exception(e)

@@ -8,6 +8,9 @@ import os
 from pathlib import Path
 from spot_bot.config import DEFAULT_VOICE, CHANNEL_URL, TTS_RATE, DEFAULT_LANGUAGE
 
+import logging
+logger = logging.getLogger(__name__)
+
 SETTINGS_PATH = Path(__file__).parent / "user_settings.json"
 
 _DEFAULTS = {
@@ -82,7 +85,7 @@ def load_settings():
             merged = {**_DEFAULTS, **data}
             return merged
     except (json.JSONDecodeError, OSError) as e:
-        print(f"Settings load error (using defaults): {e}")
+        logger.warning(f"Settings load error (using defaults): {e}")
     return dict(_DEFAULTS)
 
 
@@ -98,7 +101,7 @@ def save_settings(data):
             json.dump(data, f, indent=2, ensure_ascii=False)
         os.replace(tmp_path, SETTINGS_PATH)
     except OSError as e:
-        print(f"Settings save error: {e}")
+        logger.warning(f"Settings save error: {e}")
         # Clean up temp file if rename failed
         if tmp_path.exists():
             tmp_path.unlink()

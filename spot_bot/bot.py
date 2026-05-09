@@ -1,7 +1,10 @@
 import asyncio
+import logging
 import re
 import shlex
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+
+logger = logging.getLogger(__name__)
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -468,7 +471,7 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         try:
             remember_delivered(post_ids)
         except Exception as e:
-            print(f"[reading-log] failed to record delivered IDs: {e}")
+            logger.warning("[reading-log] failed to record delivered IDs: %s", e)
 
         # Always show the final summary as the (overwritten) status message,
         # then send the post ID range as a SEPARATE persistent message so
@@ -1292,7 +1295,7 @@ def _schedule_auto_scrape(app, config):
     """Schedule or reschedule the auto-scrape repeating job."""
     job_queue = app.job_queue
     if job_queue is None:
-        print("WARNING: job-queue extra not installed. Auto-scrape unavailable.")
+        logger.warning("job-queue extra not installed. Auto-scrape unavailable.")
         return
 
     # Remove any existing auto-scrape job
@@ -1465,8 +1468,11 @@ async def _post_init(app: Application):
     config = get_setting("auto_scrape")
     if config and config.get("enabled"):
         _schedule_auto_scrape(app, config)
-        print(f"Auto-scrape restored: every {config['interval_days']} day(s), "
-              f"{config.get('count', DEFAULT_AUTO_SCRAPE_COUNT)} articles")
+        logger.info(
+            "Auto-scrape restored: every %d day(s), %d articles",
+            config["interval_days"],
+            config.get("count", DEFAULT_AUTO_SCRAPE_COUNT),
+        )
 
     # Outbound heartbeat (no-op when HEARTBEAT_URL is unset).
     start_heartbeat_task()
@@ -1489,7 +1495,7 @@ async def _on_unhandled_error(update, context):
         sentry_sdk.capture_exception(err)
     except Exception:
         pass
-    print(f"[unhandled-error] {type(err).__name__}: {err}")
+    logger.exception("[unhandled-error] %s: %s", type(err).__name__, err)
 
 
 # ---------------------------------------------------------------------------

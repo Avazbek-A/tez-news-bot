@@ -5,6 +5,9 @@ from html import unescape
 from playwright.async_api import async_playwright
 from spot_bot.config import CHANNEL_URL
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
@@ -79,7 +82,7 @@ def _parse_date(date_str):
             return today
 
     except Exception as e:
-        print(f"Error parsing date '{date_str}': {e}")
+        logger.warning(f"Error parsing date '{date_str}': {e}")
     return None
 
 
@@ -172,8 +175,7 @@ async def _extract_posts_from_page(page, processed_ids):
             results.append((post_data, numeric_id))
 
         except Exception as e:
-            print(f"Error processing message: {e}")
-
+            logger.warning(f"Error processing message: {e}")
     return results
 
 
