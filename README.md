@@ -163,6 +163,14 @@ docker run -e BOT_TOKEN=your_token_here tez-news-bot
 3. Add `BOT_TOKEN` environment variable
 4. Auto-deploys on every push
 
+### Environment variables
+
+| Variable | Required | Purpose |
+|---|---|---|
+| `BOT_TOKEN` | yes | Telegram bot token from BotFather |
+| `SENTRY_DSN` | no | If set, errors are reported to Sentry. Free tier: 5k errors/month at sentry.io |
+| `HEARTBEAT_URL` | no | If set, the bot pings this URL every 60 seconds. Use with healthchecks.io / cronitor.io to get an alert when the bot dies. Works from any hosting (no inbound HTTP needed). |
+
 ## Dependencies
 
 | Package | Purpose |

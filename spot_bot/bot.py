@@ -37,6 +37,7 @@ from spot_bot.scrapers.telegram_channel import (
     find_post_id_by_title,
     _post_first_line,
 )
+from spot_bot.observability import start_heartbeat_task
 
 
 _RANGE_PATTERN = re.compile(r"^(\d+)-(\d+)$")
@@ -950,12 +951,35 @@ async def cmd_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def _post_init(app: Application):
-    """Restore scheduled jobs from persistent settings on startup."""
+    """Restore scheduled jobs and start observability hooks on startup."""
     config = get_setting("auto_scrape")
     if config and config.get("enabled"):
         _schedule_auto_scrape(app, config)
         print(f"Auto-scrape restored: every {config['interval_days']} day(s), "
               f"{config.get('count', DEFAULT_AUTO_SCRAPE_COUNT)} articles")
+
+    # Outbound heartbeat (no-op when HEARTBEAT_URL is unset).
+    start_heartbeat_task()
+
+
+async def _on_unhandled_error(update, context):
+    """Forward unhandled exceptions in handlers to Sentry (if configured)
+    and to logs. Without this handler, python-telegram-bot logs the
+    traceback but Sentry never sees it."""
+    err = context.error
+    if err is None:
+        return
+    # Conflict errors during polling are noise we already handle elsewhere;
+    # log without escalating to Sentry.
+    from telegram.error import Conflict
+    if isinstance(err, Conflict):
+        return
+    try:
+        import sentry_sdk
+        sentry_sdk.capture_exception(err)
+    except Exception:
+        pass
+    print(f"[unhandled-error] {type(err).__name__}: {err}")
 
 
 # ---------------------------------------------------------------------------
@@ -980,5 +1004,6 @@ def create_app():
         _handle_anchor_confirmation,
         pattern=r"^anchor_confirm_(yes|no)$",
     ))
+    app.add_error_handler(_on_unhandled_error)
 
     return app

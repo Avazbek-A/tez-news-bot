@@ -1,12 +1,19 @@
 #!/usr/bin/env python3
 """Entry point for the Spot News Telegram Bot."""
 
+import logging
 import time
 
 from telegram.error import Conflict
 
 from spot_bot.bot import create_app
 from spot_bot.config import BOT_TOKEN
+from spot_bot.observability import init_sentry
+
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    level=logging.INFO,
+)
 
 
 # How many times to retry app.run_polling() if Telegram returns a Conflict
@@ -23,8 +30,12 @@ def main():
         print("  2. Copy the token into .env: BOT_TOKEN=123456:ABC-DEF...")
         return
 
+    init_sentry()
+
     print("Starting Spot News Bot...")
     app = create_app()
+    # Heartbeat scheduling is inside bot._post_init so it runs once the
+    # bot's event loop is up and stays up.
 
     # If another bot instance is still finishing teardown when we start
     # (e.g. during a Railway rolling-restart), Telegram may reject our first
