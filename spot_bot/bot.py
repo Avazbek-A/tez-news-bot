@@ -22,7 +22,10 @@ from spot_bot.config import (
     MIN_AUTO_INTERVAL_DAYS,
     MAX_AUTO_INTERVAL_DAYS,
 )
-from spot_bot.settings import get_setting, set_setting
+from spot_bot.settings import (
+    get_setting, set_setting,
+    remember_delivered, add_bookmark, remove_bookmark,
+)
 from spot_bot.translations import t
 from spot_bot.pipeline import run_pipeline
 from spot_bot.delivery.telegram_sender import (
@@ -386,7 +389,10 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         if send_as_file:
             await send_articles_as_file(bot, chat_id, result.articles)
         else:
-            await send_articles_as_text(bot, chat_id, result.articles)
+            await send_articles_as_text(
+                bot, chat_id, result.articles,
+                bookmark_label=t("bookmark_save_btn", lang),
+            )
 
         # Send images if requested
         images_sent = 0
@@ -435,6 +441,13 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                 pid = a["id"].split("/")[-1] if "/" in a.get("id", "") else None
                 if pid and pid.isdigit():
                     post_ids.append(int(pid))
+
+        # Reading log: record what we just delivered so /unread can compare
+        # against the latest post in the channel.
+        try:
+            remember_delivered(post_ids)
+        except Exception as e:
+            print(f"[reading-log] failed to record delivered IDs: {e}")
 
         # Always show the final summary as the (overwritten) status message,
         # then send the post ID range as a SEPARATE persistent message so
@@ -938,6 +951,132 @@ async def cmd_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# /unread — show how many new articles since last delivery
+# ---------------------------------------------------------------------------
+
+async def cmd_unread(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = _get_lang()
+    delivered = get_setting("delivered_post_ids") or []
+    if not delivered:
+        await update.message.reply_text(t("unread_empty", lang))
+        return
+
+    last_seen = max(delivered)
+
+    # Probe the channel's current latest post ID.
+    from spot_bot.scrapers.telegram_channel import (
+        async_playwright, _get_latest_post_id,
+    )
+    channel_url = get_setting("channel_url")
+    try:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            try:
+                ctx = await browser.new_context()
+                page = await ctx.new_page()
+                await page.goto(channel_url)
+                await page.wait_for_selector(
+                    ".tgme_widget_message", state="visible", timeout=10000,
+                )
+                latest_id = await _get_latest_post_id(page)
+            finally:
+                await browser.close()
+    except Exception as e:
+        await update.message.reply_text(t("unread_error", lang, err=str(e)[:120]))
+        return
+
+    if latest_id is None:
+        await update.message.reply_text(t("unread_error", lang, err="no posts"))
+        return
+
+    if latest_id <= last_seen:
+        await update.message.reply_text(t("unread_none", lang, last=last_seen))
+        return
+
+    new_count = latest_id - last_seen
+    await update.message.reply_text(
+        t("unread_count", lang,
+          count=new_count, last=last_seen, latest=latest_id)
+    )
+
+
+# ---------------------------------------------------------------------------
+# /bookmarks — list saved articles
+# ---------------------------------------------------------------------------
+
+async def cmd_bookmarks(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = _get_lang()
+    bookmarks = get_setting("bookmarked_post_ids") or []
+    if not bookmarks:
+        await update.message.reply_text(t("bookmarks_empty", lang))
+        return
+
+    lines = [t("bookmarks_header", lang, n=len(bookmarks))]
+    for pid in sorted(bookmarks, reverse=True):
+        lines.append(f"#{pid}  ·  /scrape {pid}-{pid}")
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:3990] + "\n…"
+    await update.message.reply_text(text)
+
+
+# ---------------------------------------------------------------------------
+# /unbookmark <id> — remove a bookmark
+# ---------------------------------------------------------------------------
+
+async def cmd_unbookmark(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    lang = _get_lang()
+    args = context.args or []
+    if not args or not args[0].lstrip("#").isdigit():
+        await update.message.reply_text(t("unbookmark_usage", lang))
+        return
+    pid = int(args[0].lstrip("#"))
+    if remove_bookmark(pid):
+        await update.message.reply_text(t("unbookmark_removed", lang, id=pid))
+    else:
+        await update.message.reply_text(t("unbookmark_not_found", lang, id=pid))
+
+
+async def _handle_bookmark_callback(update: Update,
+                                    context: ContextTypes.DEFAULT_TYPE):
+    """Tap on a "🔖 Save" inline button under an article message."""
+    query = update.callback_query
+    lang = _get_lang()
+    data = query.data or ""
+
+    if not data.startswith("bookmark_"):
+        return
+    raw = data[len("bookmark_"):]
+    if not raw.isdigit():
+        try:
+            await query.answer()
+        except Exception:
+            pass
+        return
+    pid = int(raw)
+
+    try:
+        add_bookmark(pid)
+        await query.answer(t("bookmark_saved_toast", lang, id=pid))
+        # Update the button label so the user sees confirmation.
+        new_kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton(
+                t("bookmark_saved_btn", lang),
+                callback_data="bookmark_done",
+            ),
+        ]])
+        try:
+            await query.edit_message_reply_markup(reply_markup=new_kb)
+        except Exception:
+            pass
+    except Exception as e:
+        try:
+            await query.answer(f"Error: {e}", show_alert=True)
+        except Exception:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # /channel
 # ---------------------------------------------------------------------------
 
@@ -1233,6 +1372,9 @@ def create_app():
     app.add_handler(CommandHandler("order", cmd_order))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("auto", cmd_auto))
+    app.add_handler(CommandHandler("unread", cmd_unread))
+    app.add_handler(CommandHandler("bookmarks", cmd_bookmarks))
+    app.add_handler(CommandHandler("unbookmark", cmd_unbookmark))
     app.add_handler(CallbackQueryHandler(
         _handle_anchor_confirmation,
         pattern=r"^anchor_confirm_(yes|no)$",
@@ -1240,6 +1382,10 @@ def create_app():
     app.add_handler(CallbackQueryHandler(
         _handle_scrape_menu_callback,
         pattern=r"^scrape_menu_",
+    ))
+    app.add_handler(CallbackQueryHandler(
+        _handle_bookmark_callback,
+        pattern=r"^bookmark_",
     ))
     app.add_error_handler(_on_unhandled_error)
 

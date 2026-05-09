@@ -17,7 +17,53 @@ _DEFAULTS = {
     "language": DEFAULT_LANGUAGE,
     "auto_scrape": None,
     "chronological_order": "newest_first",
+    # Phase 4: reading log + bookmarks
+    "delivered_post_ids": [],   # capped at DELIVERED_LOG_MAX (most-recent kept)
+    "bookmarked_post_ids": [],
 }
+
+# Cap on the in-memory reading log so user_settings.json doesn't grow forever.
+DELIVERED_LOG_MAX = 5000
+
+
+def remember_delivered(post_ids):
+    """Append numeric post IDs to the delivered log, dedupe, and trim
+    to DELIVERED_LOG_MAX (keeping the highest IDs)."""
+    if not post_ids:
+        return
+    data = load_settings()
+    existing = set(data.get("delivered_post_ids") or [])
+    existing.update(int(pid) for pid in post_ids if pid is not None)
+    if len(existing) > DELIVERED_LOG_MAX:
+        # Keep the most-recent (highest) IDs only.
+        existing = set(sorted(existing)[-DELIVERED_LOG_MAX:])
+    data["delivered_post_ids"] = sorted(existing)
+    save_settings(data)
+
+
+def add_bookmark(post_id):
+    """Add a numeric post ID to bookmarks (no-op if already there)."""
+    data = load_settings()
+    bookmarks = list(data.get("bookmarked_post_ids") or [])
+    if int(post_id) not in bookmarks:
+        bookmarks.append(int(post_id))
+        bookmarks.sort()
+        data["bookmarked_post_ids"] = bookmarks
+        save_settings(data)
+
+
+def remove_bookmark(post_id):
+    """Remove a numeric post ID from bookmarks if present. Returns True if
+    something was removed."""
+    data = load_settings()
+    bookmarks = list(data.get("bookmarked_post_ids") or [])
+    target = int(post_id)
+    if target in bookmarks:
+        bookmarks.remove(target)
+        data["bookmarked_post_ids"] = bookmarks
+        save_settings(data)
+        return True
+    return False
 
 
 def load_settings():

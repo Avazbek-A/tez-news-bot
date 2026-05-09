@@ -1,10 +1,16 @@
 import asyncio
+import time
 from playwright.async_api import async_playwright
 from spot_bot.config import MAX_CONCURRENT_FETCHES, USER_AGENT
 from spot_bot.cleaners.html_cleaner import clean_html, clean_telegram_text
 
 
-async def fetch_articles(posts, include_images=False, progress_callback=None):
+# Minimum interval between progress reports (seconds), matched to TTS pacing.
+_PROGRESS_DEBOUNCE = 2.0
+
+
+async def fetch_articles(posts, include_images=False, progress_callback=None,
+                         stage_prefix=""):
     """Fetch full article content for posts that link to spot.uz.
 
     For posts without a spot.uz link, uses the Telegram post text directly.
@@ -13,46 +19,71 @@ async def fetch_articles(posts, include_images=False, progress_callback=None):
         posts: List of post dicts from the scraper.
         include_images: If True, extract article images (slower).
         progress_callback: Optional async callable(str) for status updates.
+        stage_prefix: Optional prefix for progress messages (e.g. "[2/5] ").
 
     Returns:
         List of article dicts with keys: title, body, date, source, images.
     """
     async def _report(msg):
         if progress_callback:
-            await progress_callback(msg)
+            await progress_callback(f"{stage_prefix}{msg}")
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_FETCHES)
-    articles = []
+    total = len(posts)
+    completed = 0
+    last_report_time = 0.0
+    progress_lock = asyncio.Lock()
+
+    async def _progress_one():
+        nonlocal completed, last_report_time
+        async with progress_lock:
+            completed += 1
+            now = time.monotonic()
+            if now - last_report_time >= _PROGRESS_DEBOUNCE:
+                last_report_time = now
+                await _report(f"Fetching articles ({completed}/{total})...")
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(user_agent=USER_AGENT)
 
-        tasks = []
-        for post in posts:
-            tasks.append(_process_post(context, post, semaphore, include_images))
+        tasks = [
+            _process_post(
+                context, post, semaphore, include_images,
+                progress_one=_progress_one,
+            )
+            for post in posts
+        ]
 
+        # Use asyncio.gather; per-task progress is reported via _progress_one
+        # as each task finishes its work.
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        done = 0
+        articles = []
         for result in results:
-            done += 1
             if isinstance(result, Exception):
                 print(f"Fetch error: {result}")
                 continue
             if result:
                 articles.append(result)
-            if done % 10 == 0:
-                await _report(f"Fetched {done}/{len(posts)} articles...")
 
         await browser.close()
 
-    await _report(f"Fetched {len(articles)} articles total.")
+    await _report(f"Fetched {len(articles)}/{total} articles.")
     return articles
 
 
-async def _process_post(context, post, semaphore, include_images=False):
+async def _process_post(context, post, semaphore, include_images=False,
+                        progress_one=None):
     """Process a single post: fetch the full article or use Telegram text."""
+
+    async def _tick():
+        if progress_one is not None:
+            try:
+                await progress_one()
+            except Exception:
+                pass
+
     telegram_text = clean_telegram_text(post.get("text_html", ""))
     date = post.get("date", "")
 
@@ -66,6 +97,7 @@ async def _process_post(context, post, semaphore, include_images=False):
 
     # No spot.uz link — use Telegram text directly
     if not link:
+        await _tick()
         return {
             "title": "",
             "body": telegram_text,
@@ -150,3 +182,4 @@ async def _process_post(context, post, semaphore, include_images=False):
         finally:
             if page:
                 await page.close()
+            await _tick()

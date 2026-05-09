@@ -40,7 +40,11 @@ _STRINGS = {
             "/lang en — Change language (en/ru/uz)\n"
             "/order newest|oldest — Default delivery order\n"
             "/channel — Show/change source channel\n"
-            "/status — Show current settings"
+            "/status — Show current settings\n\n"
+            "Reading log:\n"
+            "/unread — Count new articles since last scrape\n"
+            "/bookmarks — List saved articles\n"
+            "/unbookmark <id> — Remove a bookmark"
         ),
         "ru": (
             "Spot News Bot\n\n"
@@ -76,7 +80,11 @@ _STRINGS = {
             "/lang ru — Сменить язык (en/ru/uz)\n"
             "/order newest|oldest — Порядок отправки по умолчанию\n"
             "/channel — Канал-источник\n"
-            "/status — Текущие настройки"
+            "/status — Текущие настройки\n\n"
+            "История:\n"
+            "/unread — Сколько новых статей с прошлого сбора\n"
+            "/bookmarks — Список сохранённых статей\n"
+            "/unbookmark <id> — Удалить закладку"
         ),
         "uz": (
             "Spot News Bot\n\n"
@@ -112,7 +120,11 @@ _STRINGS = {
             "/lang uz — Tilni o'zgartirish (en/ru/uz)\n"
             "/order newest|oldest — Standart yetkazib berish tartibi\n"
             "/channel — Manba kanali\n"
-            "/status — Joriy sozlamalar"
+            "/status — Joriy sozlamalar\n\n"
+            "O'qish tarixi:\n"
+            "/unread — Oxirgi yig'ishdan beri qancha yangi maqola\n"
+            "/bookmarks — Saqlangan maqolalar ro'yxati\n"
+            "/unbookmark <id> — Xatcho'pni olib tashlash"
         ),
     },
 
@@ -315,6 +327,68 @@ _STRINGS = {
         "en": "Menu expired. Send /scrape again.",
         "ru": "Меню устарело. Отправьте /scrape снова.",
         "uz": "Menyu eskirgan. /scrape ni qayta yuboring.",
+    },
+
+    # Reading log + bookmarks
+    "unread_empty": {
+        "en": "No reading history yet. Run /scrape first; I'll start tracking from there.",
+        "ru": "История пуста. Запустите /scrape — отсчёт начнётся с этого момента.",
+        "uz": "Tarix bo'sh. Avval /scrape ni ishga tushiring; shundan boshlab kuzataman.",
+    },
+    "unread_none": {
+        "en": "Up to date — no new articles since #{last}.",
+        "ru": "Всё актуально — новых статей нет с #{last}.",
+        "uz": "Yangiliklar yo'q — #{last} dan keyin yangi maqola yo'q.",
+    },
+    "unread_count": {
+        "en": "{count} new articles since last scrape (#{last} → #{latest}).\nRun /scrape {latest}-{last} to fetch.",
+        "ru": "{count} новых статей с прошлого сбора (#{last} → #{latest}).\nЗапустите /scrape {latest}-{last}.",
+        "uz": "Oxirgi yig'ishdan beri {count} ta yangi maqola (#{last} → #{latest}).\nUni olish: /scrape {latest}-{last}",
+    },
+    "unread_error": {
+        "en": "Couldn't reach the channel: {err}",
+        "ru": "Не удалось обратиться к каналу: {err}",
+        "uz": "Kanalga ulanib bo'lmadi: {err}",
+    },
+    "bookmark_save_btn": {
+        "en": "🔖 Save",
+        "ru": "🔖 Сохранить",
+        "uz": "🔖 Saqlash",
+    },
+    "bookmark_saved_btn": {
+        "en": "✅ Saved",
+        "ru": "✅ Сохранено",
+        "uz": "✅ Saqlandi",
+    },
+    "bookmark_saved_toast": {
+        "en": "Saved #{id}",
+        "ru": "Сохранено #{id}",
+        "uz": "#{id} saqlandi",
+    },
+    "bookmarks_empty": {
+        "en": "No bookmarks yet. Tap 🔖 Save under any article to add one.",
+        "ru": "Закладок пока нет. Нажмите 🔖 Сохранить под статьёй.",
+        "uz": "Hali xatcho'plar yo'q. Maqola ostidagi 🔖 Saqlash ni bosing.",
+    },
+    "bookmarks_header": {
+        "en": "🔖 {n} bookmarks:",
+        "ru": "🔖 {n} закладок:",
+        "uz": "🔖 {n} ta xatcho'p:",
+    },
+    "unbookmark_usage": {
+        "en": "Usage: /unbookmark <post_id>  (e.g. /unbookmark 35808)",
+        "ru": "Использование: /unbookmark <post_id>  (например /unbookmark 35808)",
+        "uz": "Foydalanish: /unbookmark <post_id>  (masalan /unbookmark 35808)",
+    },
+    "unbookmark_removed": {
+        "en": "Removed bookmark #{id}.",
+        "ru": "Закладка #{id} удалена.",
+        "uz": "#{id} xatcho'pi o'chirildi.",
+    },
+    "unbookmark_not_found": {
+        "en": "No bookmark for #{id}.",
+        "ru": "Закладка #{id} не найдена.",
+        "uz": "#{id} xatcho'pi topilmadi.",
     },
     "sending_combined": {
         "en": "Sending combined audio...",

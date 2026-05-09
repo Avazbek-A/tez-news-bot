@@ -1,7 +1,7 @@
 import asyncio
 import os
 import tempfile
-from telegram import Bot
+from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
 from spot_bot.config import TELEGRAM_MESSAGE_LIMIT
 from spot_bot.audio.voice import (
@@ -36,11 +36,13 @@ def _short_caption(title: str, fallback_body: str = "") -> str:
     return text
 
 
-async def send_articles_as_text(bot: Bot, chat_id: int, articles: list):
+async def send_articles_as_text(bot: Bot, chat_id: int, articles: list,
+                                bookmark_label: str = "🔖 Save"):
     """Send cleaned articles as Telegram messages.
 
     Splits long articles at paragraph boundaries to stay within
-    Telegram's 4096-char limit.
+    Telegram's 4096-char limit. The final chunk of each article
+    carries an inline "🔖 Save" button so the user can bookmark.
     """
     for i, article in enumerate(articles):
         title = article.get("title", "")
@@ -68,13 +70,26 @@ async def send_articles_as_text(bot: Bot, chat_id: int, articles: list):
 
         full_text = header + _escape_html(body) + footer
 
+        # Build a save button if we have a numeric post ID; attach to the
+        # final chunk only (multi-chunk articles otherwise duplicate it).
+        save_kb = None
+        if post_id and post_id.isdigit():
+            save_kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    bookmark_label,
+                    callback_data=f"bookmark_{post_id}",
+                ),
+            ]])
+
         # Split and send
         chunks = _split_message(full_text, TELEGRAM_MESSAGE_LIMIT)
-        for chunk in chunks:
+        last_idx = len(chunks) - 1
+        for idx, chunk in enumerate(chunks):
             await bot.send_message(
                 chat_id=chat_id,
                 text=chunk,
                 parse_mode=ParseMode.HTML,
+                reply_markup=save_kb if idx == last_idx else None,
             )
             await asyncio.sleep(0.3)  # Rate limiting
 

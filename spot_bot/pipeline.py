@@ -80,7 +80,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
         # title search) — scrape forward without re-resolving.
         target_count = from_count or count or 50
         await _report(
-            f"Scraping {target_count} posts forward from #{forward_anchor_id}..."
+            f"[1/4] Scraping {target_count} posts forward from #{forward_anchor_id}..."
         )
         posts = await scrape_forward_from(
             forward_anchor_id, target_count,
@@ -120,7 +120,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
         matched_title_preview = preview
         matched_post_id = anchor_id
     elif start_post_id is not None and end_post_id is not None:
-        await _report(f"Scraping posts #{start_post_id} to #{end_post_id}...")
+        await _report(f"[1/4] Scraping posts #{start_post_id} to #{end_post_id}...")
         posts = await scrape_by_post_ids(
             start_post_id, end_post_id,
             channel_url=channel_url,
@@ -130,7 +130,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
         )
     elif start_offset is not None and end_offset is not None:
         needed = start_offset - end_offset
-        await _report(f"Scraping posts {start_offset}-{end_offset} from latest...")
+        await _report(f"[1/4] Scraping posts {start_offset}-{end_offset} from latest...")
         posts = await scrape_range(
             start_offset, end_offset,
             channel_url=channel_url,
@@ -140,7 +140,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
         )
     else:
         count = count or 20
-        await _report(f"Scraping {count} latest posts from Telegram...")
+        await _report(f"[1/4] Scraping {count} latest posts from Telegram...")
         posts = await scrape_latest(
             count,
             channel_url=channel_url,
@@ -149,7 +149,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             chronological=chronological,
         )
 
-    await _report(f"Found {len(posts)} posts.")
+    await _report(f"[1/4] Found {len(posts)} posts.")
 
     if not posts:
         return PipelineResult(
@@ -159,21 +159,22 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
 
     # 2. Fetch full article content
     _check_cancelled(cancel_event)
-    await _report("Fetching full articles from spot.uz...")
+    await _report("[2/4] Fetching full articles from spot.uz...")
     articles = await fetch_articles(
         posts, include_images=include_images,
         progress_callback=progress_callback,
+        stage_prefix="[2/4] ",
     )
-    await _report(f"Fetched {len(articles)} articles.")
+    await _report(f"[2/4] Fetched {len(articles)} articles.")
 
     # 3. Clean text for reading/TTS
     _check_cancelled(cancel_event)
-    await _report("Cleaning text...")
+    await _report("[3/4] Cleaning text...")
     articles = clean_batch(articles)
 
     # Filter out articles with empty body
     articles = [a for a in articles if a.get("body", "").strip()]
-    await _report(f"Cleaned {len(articles)} articles ready.")
+    await _report(f"[3/4] Cleaned {len(articles)} articles ready.")
 
     result = PipelineResult(
         articles=articles,
@@ -184,11 +185,16 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
     # 4. Generate audio (optional)
     if include_audio and articles:
         _check_cancelled(cancel_event)
-        await _report("Generating audio files...")
+        await _report("[4/4] Generating audio files...")
+
+        async def _audio_progress(msg):
+            if progress_callback:
+                await progress_callback(f"[4/4] {msg}")
+
         result.audio_results = await generate_batch(
             articles, voice=voice, rate=rate,
             cancel_event=cancel_event,
-            progress_callback=progress_callback,
+            progress_callback=_audio_progress,
         )
 
     return result
