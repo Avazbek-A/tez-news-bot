@@ -144,23 +144,46 @@ async def generate_audio(text, output_path, voice=DEFAULT_VOICE, rate=TTS_RATE,
     if not text or not text.strip():
         return None
 
-    # Engine selection: piper if user opted in AND the engine is actually
-    # available (model files + python package). Otherwise edge.
-    use_piper = False
+    # Engine selection. Order:
+    # - voice_engine = "supertonic" → route by detected language: Supertonic
+    #   for languages it supports (RU/EN/29 others), Edge TTS for the rest
+    #   (Uzbek). Fully open-source for the bulk of articles.
+    # - voice_engine = "piper" → use Piper if its model files are present
+    #   (Phase 10 scaffold). Otherwise Edge TTS.
+    # - default = Edge TTS (Microsoft online, free).
     try:
         from spot_bot.settings import get_setting
-        if (get_setting("voice_engine") or "edge") == "piper":
-            from spot_bot.audio.piper_engine import piper_available
-            use_piper = piper_available()
+        engine = (get_setting("voice_engine") or "edge").lower()
     except Exception:
-        use_piper = False
+        engine = "edge"
 
-    if use_piper:
-        from spot_bot.settings import get_setting
-        from spot_bot.audio.piper_engine import generate_audio_piper
-        lang = get_setting("language") or "en"
-        return await generate_audio_piper(text, output_path,
-                                          lang=lang, speed_rate=rate)
+    if engine == "supertonic":
+        from spot_bot.audio.supertonic_engine import (
+            supertonic_supports, generate_audio_supertonic,
+        )
+        from spot_bot.audio.lang_detect import detect_language
+        detected = detect_language(text)
+        if supertonic_supports(detected):
+            result = await generate_audio_supertonic(
+                text, output_path, lang=detected, speed_rate=rate,
+            )
+            if result:
+                return result
+            logger.warning(
+                "[tts] Supertonic returned None for %s text; falling back to Edge",
+                detected,
+            )
+        # else: language unsupported by Supertonic (e.g. Uzbek) → fall through
+    elif engine == "piper":
+        from spot_bot.audio.piper_engine import (
+            piper_available, generate_audio_piper,
+        )
+        if piper_available():
+            from spot_bot.settings import get_setting
+            lang = get_setting("language") or "en"
+            return await generate_audio_piper(
+                text, output_path, lang=lang, speed_rate=rate,
+            )
 
     # Fast path — short text, behave exactly as before
     if len(text) <= TTS_CHUNK_CHAR_LIMIT:

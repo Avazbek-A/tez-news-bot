@@ -174,6 +174,14 @@ docker run -e BOT_TOKEN=your_token_here tez-news-bot
 | `GROQ_MODEL` | no | Override the Groq model. Default `llama-3.1-8b-instant`. |
 | `PIPER_VOICE_DIR` | no | Path to Piper TTS voice models (`*.onnx` + `*.onnx.json`). Default `/app/piper-models`. Only consulted when `/voice_engine piper` is set. |
 
+### Voice engines
+
+| Engine | Setting | Footprint | Languages | License | Notes |
+|---|---|---|---|---|---|
+| Edge TTS (default) | `/voice_engine edge` | ~0 (network) | ~70 | Microsoft (unofficial) | Online; works for Uzbek |
+| Supertonic-3 | `/voice_engine supertonic` | ~150 MB (lazy-downloads model) | 31 inc. RU/EN | OpenRAIL-M | Open-source ONNX; routes Uzbek to Edge automatically |
+| Piper TTS | `/voice_engine piper` | depends on models | per voice file | Apache-2.0 | Drop `*.onnx` into `PIPER_VOICE_DIR` |
+
 ### Optional: enable Piper TTS (offline, open-source)
 
 Edge TTS is the default and works fine. Piper TTS is an open-source local

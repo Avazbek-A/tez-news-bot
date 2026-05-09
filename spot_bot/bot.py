@@ -1015,7 +1015,9 @@ async def cmd_voice_engine(update: Update, context: ContextTypes.DEFAULT_TYPE):
             piper_ready = piper_available()
         except Exception:
             piper_ready = False
-        if current == "piper":
+        if current == "supertonic":
+            await update.message.reply_text(t("voice_engine_supertonic_on", lang))
+        elif current == "piper":
             if piper_ready:
                 await update.message.reply_text(t("voice_engine_piper_on", lang))
             else:
@@ -1025,11 +1027,13 @@ async def cmd_voice_engine(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     choice = args[0].lower()
-    if choice not in ("edge", "piper"):
+    if choice not in ("edge", "piper", "supertonic"):
         await update.message.reply_text(t("voice_engine_unknown", lang))
         return
     set_setting("voice_engine", choice)
-    if choice == "piper":
+    if choice == "supertonic":
+        await update.message.reply_text(t("voice_engine_set_supertonic", lang))
+    elif choice == "piper":
         try:
             from spot_bot.audio.piper_engine import piper_available
             piper_ready = piper_available()

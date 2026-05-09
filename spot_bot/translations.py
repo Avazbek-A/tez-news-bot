@@ -763,9 +763,19 @@ _STRINGS = {
         "uz": "Piper tanlangan, lekin /app/piper-models da model topilmadi. Ish vaqtida Edge TTS ishlatiladi.",
     },
     "voice_engine_unknown": {
-        "en": "Usage: /voice_engine edge | piper",
-        "ru": "Использование: /voice_engine edge | piper",
-        "uz": "Foydalanish: /voice_engine edge | piper",
+        "en": "Usage: /voice_engine edge | piper | supertonic",
+        "ru": "Использование: /voice_engine edge | piper | supertonic",
+        "uz": "Foydalanish: /voice_engine edge | piper | supertonic",
+    },
+    "voice_engine_supertonic_on": {
+        "en": "🎤 Engine: Supertonic-3 (open-source ONNX, RU/EN/+28 languages). Uzbek articles route to Edge TTS automatically.",
+        "ru": "🎤 Движок: Supertonic-3 (open-source ONNX, RU/EN/+28). Узбекские статьи идут через Edge TTS.",
+        "uz": "🎤 Engine: Supertonic-3 (open-source ONNX, RU/EN/+28 til). O'zbek maqolalar avtomatik Edge TTS ga yo'naltiriladi.",
+    },
+    "voice_engine_set_supertonic": {
+        "en": "✅ Voice engine: Supertonic-3 for RU/EN, Edge TTS auto-fallback for Uzbek.",
+        "ru": "✅ Движок: Supertonic-3 для RU/EN, Edge TTS для узбекского.",
+        "uz": "✅ Engine: RU/EN uchun Supertonic-3, o'zbek uchun Edge TTS.",
     },
     "voice_engine_set_edge": {
         "en": "✅ Voice engine: Edge TTS",

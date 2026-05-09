@@ -2,6 +2,7 @@ httpx
 selectolax
 rapidfuzz
 groq
+supertonic
 beautifulsoup4
 lxml
 python-telegram-bot[job-queue]>=20.0
