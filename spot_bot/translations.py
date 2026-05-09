@@ -259,6 +259,63 @@ _STRINGS = {
         "ru": "📑 Главы (прокрутите голосовое выше):",
         "uz": "📑 Bo'limlar (yuqoridagi ovozni o'zgartiring):",
     },
+
+    # /scrape inline-keyboard menu
+    "menu_configure": {
+        "en": "Configure your scrape:",
+        "ru": "Настройте сбор:",
+        "uz": "Yig'ishni sozlang:",
+    },
+    "menu_format_text": {
+        "en": "📄 Text",
+        "ru": "📄 Текст",
+        "uz": "📄 Matn",
+    },
+    "menu_format_audio": {
+        "en": "🎵 Audio",
+        "ru": "🎵 Аудио",
+        "uz": "🎵 Audio",
+    },
+    "menu_format_combined": {
+        "en": "🎙️ Combined",
+        "ru": "🎙️ Общее",
+        "uz": "🎙️ Umumiy",
+    },
+    "menu_order_newest": {
+        "en": "⬆️ Newest",
+        "ru": "⬆️ Новые",
+        "uz": "⬆️ Yangi",
+    },
+    "menu_order_oldest": {
+        "en": "⬇️ Oldest",
+        "ru": "⬇️ Старые",
+        "uz": "⬇️ Eski",
+    },
+    "menu_start": {
+        "en": "▶️ Start",
+        "ru": "▶️ Старт",
+        "uz": "▶️ Boshlash",
+    },
+    "menu_cancel": {
+        "en": "✖️ Cancel",
+        "ru": "✖️ Отмена",
+        "uz": "✖️ Bekor",
+    },
+    "menu_starting": {
+        "en": "Starting: /scrape {args}",
+        "ru": "Запуск: /scrape {args}",
+        "uz": "Boshlanmoqda: /scrape {args}",
+    },
+    "menu_cancelled": {
+        "en": "Menu cancelled.",
+        "ru": "Меню закрыто.",
+        "uz": "Menyu bekor qilindi.",
+    },
+    "menu_expired": {
+        "en": "Menu expired. Send /scrape again.",
+        "ru": "Меню устарело. Отправьте /scrape снова.",
+        "uz": "Menyu eskirgan. /scrape ni qayta yuboring.",
+    },
     "sending_combined": {
         "en": "Sending combined audio...",
         "ru": "Отправка общего аудио...",
