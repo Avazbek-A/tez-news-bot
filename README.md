@@ -172,6 +172,23 @@ docker run -e BOT_TOKEN=your_token_here tez-news-bot
 | `HEARTBEAT_URL` | no | If set, the bot pings this URL every 60 seconds. Use with healthchecks.io / cronitor.io to get an alert when the bot dies. Works from any hosting (no inbound HTTP needed). |
 | `GROQ_API_KEY` | no | If set AND `/summarize on`, each article gets a 2-3 sentence LLM summary via Groq's free tier (open-source Llama models). Free key at console.groq.com. |
 | `GROQ_MODEL` | no | Override the Groq model. Default `llama-3.1-8b-instant`. |
+| `PIPER_VOICE_DIR` | no | Path to Piper TTS voice models (`*.onnx` + `*.onnx.json`). Default `/app/piper-models`. Only consulted when `/voice_engine piper` is set. |
+
+### Optional: enable Piper TTS (offline, open-source)
+
+Edge TTS is the default and works fine. Piper TTS is an open-source local
+alternative — useful if Microsoft ever changes Edge TTS access policies,
+or for offline-only deployments. To enable:
+
+1. Add `piper-tts` to `requirements.txt` (it's not pinned by default to
+   keep image size down — Piper + onnxruntime adds ~150MB).
+2. Drop `*.onnx` + `*.onnx.json` voice files into `/app/piper-models/`.
+   Models from https://github.com/rhasspy/piper/releases (e.g.
+   `ru_RU-irina-medium.onnx`, `en_US-amy-medium.onnx`).
+3. In Telegram: `/voice_engine piper`.
+
+The bot falls back to Edge TTS automatically if Piper or its models are
+missing at runtime, so this is safe to flip on and off.
 
 ## Dependencies
 

@@ -128,17 +128,39 @@ async def _tts_to_file(text, output_path, voice, rate, timeout):
 
 async def generate_audio(text, output_path, voice=DEFAULT_VOICE, rate=TTS_RATE,
                          cancel_event=None):
-    """Generate an MP3 file from text using Microsoft Edge TTS.
+    """Generate an MP3 file from text using the configured TTS engine.
+
+    Default engine: Microsoft Edge TTS (free, online, decent quality).
+    Optional alternative: Piper TTS (open-source, local, offline) — gated
+    by /voice_engine piper. Piper falls back to Edge if its model files
+    aren't present.
 
     For texts <= TTS_CHUNK_CHAR_LIMIT chars: single TTS call (fast path).
     For longer texts: split into chunks, generate each, binary-concat the
-    resulting MP3s into output_path. This prevents long interview-format
-    articles from timing out and being dropped from combined audio.
+    resulting MP3s into output_path.
 
     Returns the output_path if at least one chunk succeeded, None otherwise.
     """
     if not text or not text.strip():
         return None
+
+    # Engine selection: piper if user opted in AND the engine is actually
+    # available (model files + python package). Otherwise edge.
+    use_piper = False
+    try:
+        from spot_bot.settings import get_setting
+        if (get_setting("voice_engine") or "edge") == "piper":
+            from spot_bot.audio.piper_engine import piper_available
+            use_piper = piper_available()
+    except Exception:
+        use_piper = False
+
+    if use_piper:
+        from spot_bot.settings import get_setting
+        from spot_bot.audio.piper_engine import generate_audio_piper
+        lang = get_setting("language") or "en"
+        return await generate_audio_piper(text, output_path,
+                                          lang=lang, speed_rate=rate)
 
     # Fast path — short text, behave exactly as before
     if len(text) <= TTS_CHUNK_CHAR_LIMIT:

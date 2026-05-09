@@ -48,6 +48,9 @@ _DEFAULTS = {
     # LLM summary to each article's body. Cached in history_db so
     # re-scraping a known article skips the LLM call.
     "enable_summaries": False,
+    # Phase 10: TTS engine. "edge" (default) uses Microsoft Edge TTS;
+    # "piper" uses the local open-source Piper engine when available.
+    "voice_engine": "edge",
 }
 
 # Cap on the in-memory reading log so user_settings.json doesn't grow forever.

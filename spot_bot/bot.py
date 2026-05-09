@@ -1001,6 +1001,49 @@ async def cmd_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# /voice_engine — choose between Edge TTS (default) and Piper TTS (local)
+# ---------------------------------------------------------------------------
+
+async def cmd_voice_engine(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    lang = _get_lang()
+    current = (get_setting("voice_engine") or "edge").lower()
+
+    if not args:
+        try:
+            from spot_bot.audio.piper_engine import piper_available
+            piper_ready = piper_available()
+        except Exception:
+            piper_ready = False
+        if current == "piper":
+            if piper_ready:
+                await update.message.reply_text(t("voice_engine_piper_on", lang))
+            else:
+                await update.message.reply_text(t("voice_engine_piper_no_model", lang))
+        else:
+            await update.message.reply_text(t("voice_engine_edge_on", lang))
+        return
+
+    choice = args[0].lower()
+    if choice not in ("edge", "piper"):
+        await update.message.reply_text(t("voice_engine_unknown", lang))
+        return
+    set_setting("voice_engine", choice)
+    if choice == "piper":
+        try:
+            from spot_bot.audio.piper_engine import piper_available
+            piper_ready = piper_available()
+        except Exception:
+            piper_ready = False
+        if piper_ready:
+            await update.message.reply_text(t("voice_engine_set_piper", lang))
+        else:
+            await update.message.reply_text(t("voice_engine_set_piper_no_model", lang))
+    else:
+        await update.message.reply_text(t("voice_engine_set_edge", lang))
+
+
+# ---------------------------------------------------------------------------
 # /summarize — toggle LLM summaries via Groq free tier (Phase 8)
 # ---------------------------------------------------------------------------
 
@@ -2183,6 +2226,7 @@ def create_app():
     app.add_handler(CommandHandler("auto", cmd_auto))
     app.add_handler(CommandHandler("ads", cmd_ads))
     app.add_handler(CommandHandler("summarize", cmd_summarize))
+    app.add_handler(CommandHandler("voice_engine", cmd_voice_engine))
     app.add_handler(CommandHandler("quality", cmd_quality))
     app.add_handler(CommandHandler("topics", cmd_topics))
     app.add_handler(CommandHandler("dedup", cmd_dedup))

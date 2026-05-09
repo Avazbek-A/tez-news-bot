@@ -746,6 +746,43 @@ _STRINGS = {
         "uz": "📤 Ulashish",
     },
 
+    # Phase 10: /voice_engine
+    "voice_engine_edge_on": {
+        "en": "🎤 Engine: Edge TTS (Microsoft, online, free).",
+        "ru": "🎤 Движок: Edge TTS (Microsoft, онлайн, бесплатно).",
+        "uz": "🎤 Engine: Edge TTS (Microsoft, online, bepul).",
+    },
+    "voice_engine_piper_on": {
+        "en": "🎤 Engine: Piper TTS (local, open-source).",
+        "ru": "🎤 Движок: Piper TTS (локальный, open-source).",
+        "uz": "🎤 Engine: Piper TTS (mahalliy, open-source).",
+    },
+    "voice_engine_piper_no_model": {
+        "en": "Engine set to Piper but no voice model files found in /app/piper-models. Falling back to Edge TTS at runtime.",
+        "ru": "Движок Piper выбран, но в /app/piper-models нет моделей. На лету используется Edge TTS.",
+        "uz": "Piper tanlangan, lekin /app/piper-models da model topilmadi. Ish vaqtida Edge TTS ishlatiladi.",
+    },
+    "voice_engine_unknown": {
+        "en": "Usage: /voice_engine edge | piper",
+        "ru": "Использование: /voice_engine edge | piper",
+        "uz": "Foydalanish: /voice_engine edge | piper",
+    },
+    "voice_engine_set_edge": {
+        "en": "✅ Voice engine: Edge TTS",
+        "ru": "✅ Движок: Edge TTS",
+        "uz": "✅ Engine: Edge TTS",
+    },
+    "voice_engine_set_piper": {
+        "en": "✅ Voice engine: Piper TTS (local, open-source)",
+        "ru": "✅ Движок: Piper TTS (локальный, open-source)",
+        "uz": "✅ Engine: Piper TTS (mahalliy, open-source)",
+    },
+    "voice_engine_set_piper_no_model": {
+        "en": "✅ Set to Piper, but no model files found yet. Drop *.onnx into /app/piper-models (or set PIPER_VOICE_DIR). Until then, Edge TTS will be used at runtime.",
+        "ru": "✅ Выбран Piper, но моделей нет. Положите *.onnx в /app/piper-models (или задайте PIPER_VOICE_DIR). Пока используется Edge TTS.",
+        "uz": "✅ Piper tanlandi, lekin model fayllar yo'q. *.onnx ni /app/piper-models ga qo'ying (yoki PIPER_VOICE_DIR o'rnating). Hozircha Edge TTS ishlaydi.",
+    },
+
     # /auto cron-mode strings
     "auto_usage": {
         "en": "Usage:\n  /auto daily HH:MM [count] [flags]\n  /auto weekdays HH:MM [count] [flags]\n  /auto weekly Mon HH:MM [count] [flags]\n  /auto every N [count] [flags]\n  /auto off",
