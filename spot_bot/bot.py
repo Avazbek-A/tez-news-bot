@@ -386,6 +386,17 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             t("sending_articles", lang, count=len(result.articles))
         )
 
+        # Image placement strategy:
+        # - inline text mode  → embed albums under each article's text
+        # - file mode + individual audio → embed albums under each voice
+        # - file/combined modes → flattened album batch at the end
+        text_inline_images = include_images and not send_as_file
+        audio_inline_images = (
+            include_images and include_audio and not combined_audio
+            and send_as_file
+        )
+        images_handled_inline = text_inline_images or audio_inline_images
+
         # Send text — as file or inline messages
         if send_as_file:
             await send_articles_as_file(bot, chat_id, result.articles)
@@ -393,14 +404,22 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             await send_articles_as_text(
                 bot, chat_id, result.articles,
                 bookmark_label=t("bookmark_save_btn", lang),
+                inline_images=text_inline_images,
             )
 
-        # Send images if requested
+        # Send images now ONLY if not embedded inline above. The flattened
+        # album path is used for file mode and combined-voice mode, where
+        # there's no per-article message to attach images to.
         images_sent = 0
-        if include_images:
+        if include_images and not images_handled_inline:
             await status_msg.edit_text(t("sending_images", lang))
             images_sent = await send_article_images(
                 bot, chat_id, result.articles
+            )
+        elif include_images:
+            # Approximation; inline senders don't return a count.
+            images_sent = sum(
+                len(a.get("images") or []) for a in result.articles
             )
 
         # Send audio as Telegram voice messages (mobile gets native speed
@@ -424,7 +443,8 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             else:
                 await status_msg.edit_text(t("sending_audio", lang))
                 audio_sent = await send_voice_messages(
-                    bot, chat_id, result.audio_results
+                    bot, chat_id, result.audio_results,
+                    inline_images=audio_inline_images,
                 )
 
         # Final summary with post ID range

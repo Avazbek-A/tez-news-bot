@@ -1,8 +1,18 @@
 import asyncio
 import os
 import tempfile
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import (
+    Bot,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    InputMediaPhoto,
+)
 from telegram.constants import ParseMode
+
+# Telegram media-group cap: 10 items per album.
+_MEDIA_GROUP_MAX = 10
+# Caption length cap for media items.
+_MEDIA_CAPTION_MAX = 1000
 from spot_bot.config import TELEGRAM_MESSAGE_LIMIT
 from spot_bot.audio.voice import (
     convert_mp3_to_opus,
@@ -37,12 +47,17 @@ def _short_caption(title: str, fallback_body: str = "") -> str:
 
 
 async def send_articles_as_text(bot: Bot, chat_id: int, articles: list,
-                                bookmark_label: str = "🔖 Save"):
+                                bookmark_label: str = "🔖 Save",
+                                inline_images: bool = False):
     """Send cleaned articles as Telegram messages.
 
     Splits long articles at paragraph boundaries to stay within
     Telegram's 4096-char limit. The final chunk of each article
     carries an inline "🔖 Save" button so the user can bookmark.
+
+    When inline_images=True, each article's images are sent as a
+    compact media-group album right after its text, instead of being
+    sent in a separate batch at the end.
     """
     for i, article in enumerate(articles):
         title = article.get("title", "")
@@ -92,6 +107,13 @@ async def send_articles_as_text(bot: Bot, chat_id: int, articles: list,
                 reply_markup=save_kb if idx == last_idx else None,
             )
             await asyncio.sleep(0.3)  # Rate limiting
+
+        # Inline image album right after the article text
+        if inline_images:
+            try:
+                await send_article_image_album(bot, chat_id, article)
+            except Exception as e:
+                print(f"[inline-images] album send failed: {e}")
 
 
 async def send_articles_as_file(bot: Bot, chat_id: int, articles: list,
@@ -148,40 +170,99 @@ async def send_articles_as_file(bot: Bot, chat_id: int, articles: list,
         os.unlink(tmp.name)
 
 
-async def send_article_images(bot: Bot, chat_id: int, articles: list):
-    """Send article images as Telegram photos.
+async def _send_image_album(bot: Bot, chat_id: int, image_dicts: list,
+                            caption: str = ""):
+    """Send images as a Telegram media-group album (compact grid).
 
-    For each article that has images, sends them grouped after the article.
-    Skips on failure (URL might be dead).
+    Telegram limits a media group to 10 items; we chunk if there are more.
+    For a single image we use send_photo. Caption (if any) is attached to
+    the first item of each group; subsequent items go uncaptioned.
+
+    image_dicts: list of {"url": "...", "alt": "..."} dicts.
+    Returns the number of images successfully sent.
     """
-    sent = 0
+    valid = [img for img in image_dicts if img and img.get("url")]
+    if not valid:
+        return 0
+
+    sent_total = 0
+    cap = (caption or "").strip()
+    cap = cap[: _MEDIA_CAPTION_MAX - 1] + "…" if len(cap) > _MEDIA_CAPTION_MAX else cap
+
+    # Single-image fast path
+    if len(valid) == 1:
+        img = valid[0]
+        try:
+            await bot.send_photo(
+                chat_id=chat_id,
+                photo=img["url"],
+                caption=cap or (img.get("alt") or "")[:_MEDIA_CAPTION_MAX] or None,
+            )
+            return 1
+        except Exception as e:
+            print(f"[album] single-photo send failed: {e}")
+            return 0
+
+    # Multi-image: chunk into media groups of <= 10
+    for chunk_start in range(0, len(valid), _MEDIA_GROUP_MAX):
+        chunk = valid[chunk_start: chunk_start + _MEDIA_GROUP_MAX]
+        media = []
+        for i, img in enumerate(chunk):
+            # Caption only on the first item of the FIRST chunk
+            if chunk_start == 0 and i == 0 and cap:
+                media.append(InputMediaPhoto(media=img["url"], caption=cap))
+            else:
+                media.append(InputMediaPhoto(media=img["url"]))
+        try:
+            await bot.send_media_group(chat_id=chat_id, media=media)
+            sent_total += len(chunk)
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            print(f"[album] media_group send failed ({len(chunk)} items): {e}")
+            # Best-effort fallback: try each photo individually so at
+            # least the working URLs deliver.
+            for img in chunk:
+                try:
+                    await bot.send_photo(chat_id=chat_id, photo=img["url"])
+                    sent_total += 1
+                    await asyncio.sleep(0.3)
+                except Exception as e2:
+                    print(f"[album] fallback send_photo failed: {e2}")
+
+    return sent_total
+
+
+async def send_article_image_album(bot: Bot, chat_id: int, article: dict):
+    """Send a single article's images as one album, with the article title
+    as caption on the first photo. Returns the number of images sent.
+    """
+    images = article.get("images") or []
+    if not images:
+        return 0
+    title = (article.get("title") or "").strip()
+    return await _send_image_album(bot, chat_id, images, caption=title)
+
+
+async def send_article_images(bot: Bot, chat_id: int, articles: list):
+    """Send article images as compact Telegram photo albums (media groups).
+
+    Used in modes where there is no per-article message to attach images
+    to (default file mode + combined-voice mode). All images from all
+    articles are flattened into albums of up to 10 photos each so the
+    chat doesn't fill up with separate photo messages.
+    """
+    flat = []
     for article in articles:
-        images = article.get("images", [])
-        if not images:
-            continue
-
-        title = article.get("title", "")
-
-        for img in images:
-            url = img.get("url", "")
-            if not url:
-                continue
-            try:
-                caption = img.get("alt", "") or title
-                await bot.send_photo(
-                    chat_id=chat_id,
-                    photo=url,
-                    caption=caption[:200] if caption else None,
-                )
-                sent += 1
-                await asyncio.sleep(0.3)
-            except Exception as e:
-                print(f"Error sending image {url}: {e}")
-
-    return sent
+        for img in article.get("images") or []:
+            if img and img.get("url"):
+                flat.append(img)
+    if not flat:
+        return 0
+    return await _send_image_album(bot, chat_id, flat)
 
 
-async def send_voice_messages(bot: Bot, chat_id: int, results: list):
+async def send_voice_messages(bot: Bot, chat_id: int, results: list,
+                              inline_images: bool = False):
     """Send each article's audio as a Telegram voice message.
 
     Voice messages give native mobile playback speed control (1x/1.5x/2x).
@@ -189,10 +270,16 @@ async def send_voice_messages(bot: Bot, chat_id: int, results: list):
     before sending. Each voice message is capped at VOICE_MAX_DURATION_SECONDS;
     articles longer than that get split across multiple voice messages.
 
+    When inline_images=True, each article's images are sent as a compact
+    media-group album right after its voice message (rather than as a
+    separate batch at the end).
+
     Args:
         bot: Telegram Bot instance.
         chat_id: Chat to send to.
         results: List of (article, audio_path) tuples from TTS generator.
+        inline_images: If True, send each article's images as an album
+            right after its voice message.
 
     Returns:
         Number of voice messages successfully sent.
@@ -263,6 +350,13 @@ async def send_voice_messages(bot: Bot, chat_id: int, results: list):
                 )
             sent += 1
             await asyncio.sleep(0.5)
+
+            # Inline image album right after this voice message
+            if inline_images:
+                try:
+                    await send_article_image_album(bot, chat_id, article)
+                except Exception as e:
+                    print(f"[inline-images] album send failed: {e}")
         except Exception as e:
             print(f"Error sending voice message: {e}")
         finally:
