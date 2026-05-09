@@ -44,7 +44,11 @@ _STRINGS = {
             "Reading log:\n"
             "/unread — Count new articles since last scrape\n"
             "/bookmarks — List saved articles\n"
-            "/unbookmark <id> — Remove a bookmark"
+            "/unbookmark <id> — Remove a bookmark\n\n"
+            "Sources:\n"
+            "/sources — List configured sources\n"
+            "/addsource <type> <url> [label] — Add (type: telegram or rss)\n"
+            "/removesource <id> — Remove"
         ),
         "ru": (
             "Spot News Bot\n\n"
@@ -84,7 +88,11 @@ _STRINGS = {
             "История:\n"
             "/unread — Сколько новых статей с прошлого сбора\n"
             "/bookmarks — Список сохранённых статей\n"
-            "/unbookmark <id> — Удалить закладку"
+            "/unbookmark <id> — Удалить закладку\n\n"
+            "Источники:\n"
+            "/sources — Список настроенных источников\n"
+            "/addsource <тип> <url> [название] — Добавить (тип: telegram или rss)\n"
+            "/removesource <id> — Удалить"
         ),
         "uz": (
             "Spot News Bot\n\n"
@@ -124,7 +132,11 @@ _STRINGS = {
             "O'qish tarixi:\n"
             "/unread — Oxirgi yig'ishdan beri qancha yangi maqola\n"
             "/bookmarks — Saqlangan maqolalar ro'yxati\n"
-            "/unbookmark <id> — Xatcho'pni olib tashlash"
+            "/unbookmark <id> — Xatcho'pni olib tashlash\n\n"
+            "Manbalar:\n"
+            "/sources — Sozlangan manbalar ro'yxati\n"
+            "/addsource <turi> <url> [nomi] — Qo'shish (turi: telegram yoki rss)\n"
+            "/removesource <id> — O'chirish"
         ),
     },
 
@@ -389,6 +401,58 @@ _STRINGS = {
         "en": "No bookmark for #{id}.",
         "ru": "Закладка #{id} не найдена.",
         "uz": "#{id} xatcho'pi topilmadi.",
+    },
+
+    # Multi-source / RSS
+    "sources_empty": {
+        "en": "No sources configured. Add one with /addsource.",
+        "ru": "Источники не настроены. Добавьте через /addsource.",
+        "uz": "Manbalar sozlanmagan. /addsource orqali qo'shing.",
+    },
+    "sources_header": {
+        "en": "📡 {n} sources:",
+        "ru": "📡 {n} источников:",
+        "uz": "📡 {n} ta manba:",
+    },
+    "addsource_usage": {
+        "en": "Usage: /addsource <type> <url> [label]\nTypes: telegram | rss\n  /addsource telegram https://t.me/s/spotuz Spot\n  /addsource rss https://kun.uz/news/rss Kun.uz",
+        "ru": "Использование: /addsource <тип> <url> [название]\nТипы: telegram | rss\n  /addsource telegram https://t.me/s/spotuz Spot\n  /addsource rss https://kun.uz/news/rss Kun.uz",
+        "uz": "Foydalanish: /addsource <turi> <url> [nomi]\nTurlari: telegram | rss\n  /addsource telegram https://t.me/s/spotuz Spot\n  /addsource rss https://kun.uz/news/rss Kun.uz",
+    },
+    "addsource_bad_type": {
+        "en": "Type must be 'telegram' or 'rss'.",
+        "ru": "Тип должен быть 'telegram' или 'rss'.",
+        "uz": "Turi 'telegram' yoki 'rss' bo'lishi kerak.",
+    },
+    "addsource_bad_url": {
+        "en": "URL must start with http:// or https://",
+        "ru": "URL должен начинаться с http:// или https://",
+        "uz": "URL http:// yoki https:// bilan boshlanishi kerak.",
+    },
+    "addsource_bad_telegram_url": {
+        "en": "Telegram source URL must start with https://t.me/s/",
+        "ru": "URL Telegram-источника должен начинаться с https://t.me/s/",
+        "uz": "Telegram manba URL https://t.me/s/ bilan boshlanishi kerak.",
+    },
+    "addsource_added": {
+        "en": "✅ Added source: {id} ({label})",
+        "ru": "✅ Источник добавлен: {id} ({label})",
+        "uz": "✅ Manba qo'shildi: {id} ({label})",
+    },
+    "removesource_usage": {
+        "en": "Usage: /removesource <id>  (see /sources for ids)",
+        "ru": "Использование: /removesource <id>  (см. /sources)",
+        "uz": "Foydalanish: /removesource <id>  (idlar /sources da)",
+    },
+    "removesource_removed": {
+        "en": "Removed source: {id}",
+        "ru": "Источник удалён: {id}",
+        "uz": "Manba o'chirildi: {id}",
+    },
+    "removesource_not_found": {
+        "en": "No source with id '{id}'. Use /sources to list.",
+        "ru": "Источник '{id}' не найден. См. /sources.",
+        "uz": "'{id}' nomli manba topilmadi. /sources ni ko'ring.",
     },
     "sending_combined": {
         "en": "Sending combined audio...",

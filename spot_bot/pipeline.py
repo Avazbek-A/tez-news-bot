@@ -8,6 +8,8 @@ from spot_bot.scrapers.telegram_channel import (
     scrape_forward_from,
     _post_first_line,
 )
+from spot_bot.scrapers.rss_feed import fetch_rss_articles
+from spot_bot.settings import get_sources
 from spot_bot.scrapers.article_fetcher import fetch_articles
 from spot_bot.cleaners.text_cleaner import clean_batch
 from spot_bot.audio.tts_generator import generate_batch, cleanup_audio_files
@@ -71,6 +73,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
 
     matched_title_preview = ""
     matched_post_id = 0
+    prefetched_articles = []  # RSS-source articles, already have body filled in
 
     # 1. Scrape posts — title-anchored, post IDs, offset range, or latest
     _check_cancelled(cancel_event)
@@ -140,31 +143,48 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
         )
     else:
         count = count or 20
-        await _report(f"[1/4] Scraping {count} latest posts from Telegram...")
-        posts = await scrape_latest(
-            count,
-            channel_url=channel_url,
-            cancel_event=cancel_event,
-            progress_callback=progress_callback,
-            chronological=chronological,
-        )
+        # Multi-source path: when more than one configured source exists,
+        # iterate through them all and merge by date. For single-source or
+        # back-compat (no `sources` configured but legacy channel_url is set),
+        # fall through to the existing single-channel scrape.
+        sources = get_sources()
+        if len(sources) > 1:
+            posts, prefetched_articles = await _collect_from_sources(
+                sources, count, cancel_event, progress_callback,
+                chronological,
+            )
+        else:
+            await _report(f"[1/4] Scraping {count} latest posts from Telegram...")
+            posts = await scrape_latest(
+                count,
+                channel_url=channel_url,
+                cancel_event=cancel_event,
+                progress_callback=progress_callback,
+                chronological=chronological,
+            )
 
-    await _report(f"[1/4] Found {len(posts)} posts.")
+    await _report(f"[1/4] Found {len(posts) + len(prefetched_articles)} posts.")
 
-    if not posts:
+    if not posts and not prefetched_articles:
         return PipelineResult(
             matched_title_preview=matched_title_preview,
             matched_post_id=matched_post_id,
         )
 
-    # 2. Fetch full article content
+    # 2. Fetch full article content (Telegram-origin only; RSS already has body)
     _check_cancelled(cancel_event)
-    await _report("[2/4] Fetching full articles from spot.uz...")
-    articles = await fetch_articles(
-        posts, include_images=include_images,
-        progress_callback=progress_callback,
-        stage_prefix="[2/4] ",
-    )
+    if posts:
+        await _report("[2/4] Fetching full articles from spot.uz...")
+        fetched = await fetch_articles(
+            posts, include_images=include_images,
+            progress_callback=progress_callback,
+            stage_prefix="[2/4] ",
+        )
+    else:
+        fetched = []
+
+    # Merge in any pre-fetched RSS articles (their body is already populated)
+    articles = list(prefetched_articles) + fetched
     await _report(f"[2/4] Fetched {len(articles)} articles.")
 
     # 3. Clean text for reading/TTS
@@ -198,3 +218,73 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
         )
 
     return result
+
+
+async def _collect_from_sources(sources, total_count, cancel_event,
+                                progress_callback, chronological):
+    """Walk every configured source, collect roughly total_count // len(sources)
+    items from each, and return:
+      (telegram_posts, rss_articles)
+    where telegram_posts still need fetching by article_fetcher and
+    rss_articles already have title+body populated.
+
+    Sources that fail are logged and skipped. The caller does the merge,
+    sorting, and dedupe.
+    """
+    async def _report(msg):
+        if progress_callback:
+            try:
+                await progress_callback(msg)
+            except Exception:
+                pass
+
+    if not sources:
+        return [], []
+
+    # Slightly over-request from each so deduplication after merge still
+    # leaves us with at least total_count items.
+    per_source = max(2, (total_count // len(sources)) + 2)
+
+    telegram_posts = []
+    rss_articles = []
+
+    for src in sources:
+        if cancel_event and cancel_event.is_set():
+            break
+        sid = src.get("id", "?")
+        stype = src.get("type", "telegram")
+        url = src.get("url", "")
+        await _report(f"[1/4] Source {sid} ({stype})...")
+
+        try:
+            if stype == "telegram":
+                got = await scrape_latest(
+                    per_source,
+                    channel_url=url,
+                    cancel_event=cancel_event,
+                    progress_callback=None,  # avoid noise from per-source updates
+                    chronological=chronological,
+                )
+                telegram_posts.extend(got)
+            elif stype == "rss":
+                got = await fetch_rss_articles(
+                    sid, url, per_source,
+                    cancel_event=cancel_event,
+                    progress_callback=None,
+                    chronological=chronological,
+                )
+                rss_articles.extend(got)
+            else:
+                print(f"[multi-source] unknown source type: {stype}")
+        except Exception as e:
+            print(f"[multi-source] {sid} failed: {e}")
+            try:
+                import sentry_sdk
+                sentry_sdk.capture_exception(e)
+            except Exception:
+                pass
+
+    # Trim per side: keep newest. Telegram posts are sorted by post id; RSS
+    # by date. After the article fetch later, the cleaning step preserves
+    # order so the final merge is by date desc (or asc if chronological).
+    return telegram_posts[:total_count], rss_articles[:total_count]

@@ -6,3 +6,4 @@ edge-tts
 python-dotenv
 sentry-sdk
 aiohttp
+feedparser

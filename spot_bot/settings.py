@@ -20,6 +20,9 @@ _DEFAULTS = {
     # Phase 4: reading log + bookmarks
     "delivered_post_ids": [],   # capped at DELIVERED_LOG_MAX (most-recent kept)
     "bookmarked_post_ids": [],
+    # Phase 5: multi-source. Items: {id, type ('telegram'|'rss'), url, label}.
+    # If empty/None at load time, migrate from channel_url for backward compat.
+    "sources": [],
 }
 
 # Cap on the in-memory reading log so user_settings.json doesn't grow forever.
@@ -101,6 +104,54 @@ def save_settings(data):
 def get_setting(key):
     """Get a single setting value."""
     return load_settings().get(key, _DEFAULTS.get(key))
+
+
+def get_sources():
+    """Return the configured list of sources, auto-migrating from the
+    legacy single channel_url if no `sources` list has been set yet.
+
+    Each item is a dict {id, type, url, label}.
+    """
+    data = load_settings()
+    sources = data.get("sources") or []
+    if sources:
+        return sources
+
+    # Migrate from legacy channel_url
+    legacy_url = data.get("channel_url")
+    if legacy_url:
+        migrated = [{
+            "id": "default",
+            "type": "telegram",
+            "url": legacy_url,
+            "label": "Default",
+        }]
+        data["sources"] = migrated
+        save_settings(data)
+        return migrated
+    return []
+
+
+def add_source(source):
+    """Append a source dict {id, type, url, label}. Replaces if id already exists."""
+    data = load_settings()
+    sources = list(data.get("sources") or [])
+    sources = [s for s in sources if s.get("id") != source["id"]]
+    sources.append(source)
+    data["sources"] = sources
+    save_settings(data)
+
+
+def remove_source(source_id):
+    """Remove a source by id. Returns True if something was removed."""
+    data = load_settings()
+    sources = list(data.get("sources") or [])
+    new_sources = [s for s in sources if s.get("id") != source_id]
+    if len(new_sources) == len(sources):
+        return False
+    data["sources"] = new_sources
+    save_settings(data)
+    return True
 
 
 def set_setting(key, value):
