@@ -463,6 +463,88 @@ async def scrape_forward_from(anchor_id, count, channel_url=CHANNEL_URL,
     return posts
 
 
+async def find_post_ids_for_date_range(start_date, end_date,
+                                       channel_url=CHANNEL_URL,
+                                       max_pages=_MAX_PAGES_PER_SCRAPE,
+                                       cancel_event=None,
+                                       progress_callback=None):
+    """Walk the channel and return (newest_id, oldest_id) of posts whose date
+    falls inside [start_date, end_date] (both inclusive, datetime.date).
+
+    Returns (None, None) if no posts in that range or the channel is empty.
+    Walking stops once we've passed below `start_date` so we don't waste
+    requests on older history.
+    """
+    async def _report(msg):
+        if progress_callback:
+            await progress_callback(msg)
+
+    if start_date > end_date:
+        start_date, end_date = end_date, start_date
+
+    processed_ids: set[str] = set()
+    in_range_ids: list[int] = []
+    pages_walked = 0
+
+    async with _make_client() as client:
+        await _report(f"Looking for posts {start_date.isoformat()} … {end_date.isoformat()}")
+        html = await _fetch_page(client, channel_url)
+        if html is None:
+            return (None, None)
+
+        oldest_id_seen: Optional[int] = None
+        below_range_pages = 0
+        while pages_walked < max_pages:
+            if cancel_event and cancel_event.is_set():
+                break
+
+            batch = _extract_posts_from_html(html, processed_ids)
+            if not batch:
+                break
+
+            page_min_date = None
+            page_max_date = None
+            for post_data, numeric_id in batch:
+                if numeric_id is None:
+                    continue
+                if oldest_id_seen is None or numeric_id < oldest_id_seen:
+                    oldest_id_seen = numeric_id
+                try:
+                    d = datetime.fromisoformat(post_data["date"]).date()
+                except (ValueError, TypeError):
+                    continue
+                if page_min_date is None or d < page_min_date:
+                    page_min_date = d
+                if page_max_date is None or d > page_max_date:
+                    page_max_date = d
+                if start_date <= d <= end_date:
+                    in_range_ids.append(numeric_id)
+
+            pages_walked += 1
+            await _report(
+                f"Scanned {pages_walked} page(s), {len(in_range_ids)} match(es)..."
+            )
+
+            # Stop once the entire page is older than the range and we've
+            # already seen something in range OR walked far enough.
+            if page_max_date is not None and page_max_date < start_date:
+                below_range_pages += 1
+                if below_range_pages >= 2:
+                    break
+            else:
+                below_range_pages = 0
+
+            if oldest_id_seen is None:
+                break
+            html = await _fetch_page(client, f"{channel_url}?before={oldest_id_seen}")
+            if html is None:
+                break
+
+    if not in_range_ids:
+        return (None, None)
+    return (max(in_range_ids), min(in_range_ids))
+
+
 async def scrape_by_post_ids(start_id, end_id, channel_url=CHANNEL_URL,
                              cancel_event=None, progress_callback=None,
                              chronological=False):

@@ -17,7 +17,9 @@ _STRINGS = {
             "/scrape 2000-1950 — Posts by offset from latest\n"
             "/scrape 50 images — .txt + article images\n"
             "/scrape from \"<title>\" 50 — Anchor on a title; scrape 50 forward\n"
-            "/scrape from \"<title>\" 5 audio combined — Title-anchored + combined MP3\n\n"
+            "/scrape from \"<title>\" 5 audio combined — Title-anchored + combined MP3\n"
+            "/today, /yesterday, /thisweek [flags] — Date-based shortcuts\n"
+            "/since YYYY-MM-DD [flags] — Everything since a date\n\n"
             "How \"from\" works:\n"
             "• Wrap the title in double quotes. A fragment is enough.\n"
             "• Match is case-insensitive; punctuation is ignored.\n"
@@ -62,7 +64,9 @@ _STRINGS = {
             "/scrape 2000-1950 — По смещению от последнего\n"
             "/scrape 50 images — .txt + изображения статей\n"
             "/scrape from \"<заголовок>\" 50 — От заголовка вперёд на 50\n"
-            "/scrape from \"<заголовок>\" 5 audio combined — От заголовка + общий MP3\n\n"
+            "/scrape from \"<заголовок>\" 5 audio combined — От заголовка + общий MP3\n"
+            "/today, /yesterday, /thisweek [флаги] — По дате\n"
+            "/since YYYY-MM-DD [флаги] — Всё с указанной даты\n\n"
             "Как работает \"from\":\n"
             "• Заголовок — в двойных кавычках. Достаточно фрагмента.\n"
             "• Регистр и пунктуация не учитываются.\n"
@@ -107,7 +111,9 @@ _STRINGS = {
             "/scrape 2000-1950 — So'nggidan siljish bo'yicha\n"
             "/scrape 50 images — .txt + maqola rasmlari\n"
             "/scrape from \"<sarlavha>\" 50 — Sarlavhadan oldinga 50 ta\n"
-            "/scrape from \"<sarlavha>\" 5 audio combined — Sarlavhadan + umumiy MP3\n\n"
+            "/scrape from \"<sarlavha>\" 5 audio combined — Sarlavhadan + umumiy MP3\n"
+            "/today, /yesterday, /thisweek [bayroqlar] — Sana bo'yicha\n"
+            "/since YYYY-MM-DD [bayroqlar] — Sanadan beri hammasi\n\n"
             "\"from\" qanday ishlaydi:\n"
             "• Sarlavhani qo'shtirnoq ichiga oling. Bo'lak ham yetadi.\n"
             "• Katta-kichik harf va tinish belgilari hisobga olinmaydi.\n"
@@ -493,6 +499,63 @@ _STRINGS = {
         "en": "Ads: filtered",
         "ru": "Реклама: фильтруется",
         "uz": "Reklamalar: filtrlanyapti",
+    },
+
+    # Date-based scrape shortcuts
+    "date_label_today": {
+        "en": "today's posts",
+        "ru": "посты за сегодня",
+        "uz": "bugungi postlar",
+    },
+    "date_label_yesterday": {
+        "en": "yesterday's posts",
+        "ru": "посты за вчера",
+        "uz": "kechagi postlar",
+    },
+    "date_label_thisweek": {
+        "en": "the last 7 days",
+        "ru": "посты за последние 7 дней",
+        "uz": "so'nggi 7 kun postlari",
+    },
+    "date_label_since": {
+        "en": "posts since {date}",
+        "ru": "посты с {date}",
+        "uz": "{date} dan beri postlar",
+    },
+    "date_resolving": {
+        "en": "Looking up {label}...",
+        "ru": "Ищу {label}...",
+        "uz": "{label} qidirilmoqda...",
+    },
+    "date_none": {
+        "en": "No posts found for {label}.",
+        "ru": "Постов не найдено за {label}.",
+        "uz": "{label} bo'yicha postlar topilmadi.",
+    },
+    "date_error": {
+        "en": "Date lookup failed: {err}",
+        "ru": "Ошибка поиска по дате: {err}",
+        "uz": "Sana bo'yicha qidirish xatosi: {err}",
+    },
+    "date_found": {
+        "en": "Found {label}: posts #{oldest}-#{newest}. Starting...",
+        "ru": "Найдено {label}: посты #{oldest}-#{newest}. Запуск...",
+        "uz": "{label} topildi: postlar #{oldest}-#{newest}. Boshlanmoqda...",
+    },
+    "since_usage": {
+        "en": "Usage: /since YYYY-MM-DD [audio combined images inline ...]\nExample: /since 2026-05-01 audio combined",
+        "ru": "Использование: /since YYYY-MM-DD [audio combined images inline ...]\nПример: /since 2026-05-01 audio combined",
+        "uz": "Foydalanish: /since YYYY-MM-DD [audio combined images inline ...]\nMisol: /since 2026-05-01 audio combined",
+    },
+    "since_bad_date": {
+        "en": "Date must look like YYYY-MM-DD (e.g. 2026-05-01).",
+        "ru": "Дата должна быть в формате YYYY-MM-DD (напр. 2026-05-01).",
+        "uz": "Sana YYYY-MM-DD ko'rinishida bo'lishi kerak (masalan 2026-05-01).",
+    },
+    "since_future": {
+        "en": "Date is in the future — nothing to scrape yet.",
+        "ru": "Дата в будущем — пока ничего собирать.",
+        "uz": "Sana kelajakda — hozircha yig'iladigan narsa yo'q.",
     },
     "sending_combined": {
         "en": "Sending combined audio...",
