@@ -17,6 +17,21 @@ from spot_bot.audio.voice import (
 # Telegram voice-message size cap from bots is 50MB (same as documents).
 _VOICE_MAX_BYTES = 50 * 1024 * 1024
 
+# Max chars for the per-voice-message caption (Telegram allows up to 1024,
+# but a short caption keeps the chat scannable for navigation).
+_VOICE_CAPTION_MAX = 80
+
+
+def _short_caption(title: str, fallback_body: str = "") -> str:
+    """Build a short, single-line caption from an article title."""
+    text = (title or "").strip()
+    if not text and fallback_body:
+        text = fallback_body.strip().split("\n", 1)[0]
+    text = text.replace("\n", " ").strip()
+    if len(text) > _VOICE_CAPTION_MAX:
+        text = text[: _VOICE_CAPTION_MAX - 1].rstrip() + "…"
+    return text
+
 
 async def send_articles_as_text(bot: Bot, chat_id: int, articles: list):
     """Send cleaned articles as Telegram messages.
@@ -216,11 +231,17 @@ async def send_voice_messages(bot: Bot, chat_id: int, results: list):
                 print(f"Voice file too large ({file_size} bytes), skipping")
                 continue
 
+            caption = _short_caption(
+                article.get("title", ""),
+                fallback_body=article.get("body", ""),
+            )
+
             with open(out_path, "rb") as f:
                 await bot.send_voice(
                     chat_id=chat_id,
                     voice=f,
                     duration=int(duration) if duration > 0 else None,
+                    caption=caption or None,
                 )
             sent += 1
             await asyncio.sleep(0.5)
@@ -308,16 +329,24 @@ async def send_combined_voice(bot: Bot, chat_id: int, results: list,
                 await _report(
                     f"Sending voice part {i + 1}/{len(batches)}..."
                 )
+                # Caption: lead article title + part info, kept short.
+                lead_article = batch[0][0] if batch else {}
+                lead_title = _short_caption(
+                    lead_article.get("title", ""),
+                    fallback_body=lead_article.get("body", ""),
+                )
+                if len(batches) > 1:
+                    suffix = f"  ·  Part {i + 1}/{len(batches)} ({len(mp3_paths)} articles)"
+                else:
+                    suffix = f"  ·  {len(mp3_paths)} articles" if len(mp3_paths) > 1 else ""
+                caption_text = (lead_title + suffix).strip() or None
+
                 with open(out, "rb") as f:
                     await bot.send_voice(
                         chat_id=chat_id,
                         voice=f,
                         duration=int(duration) if duration > 0 else None,
-                        caption=(
-                            f"Part {i + 1}/{len(batches)} "
-                            f"({len(mp3_paths)} articles)"
-                            if len(batches) > 1 else None
-                        ),
+                        caption=caption_text,
                     )
                 delivered += len(mp3_paths)
                 await asyncio.sleep(0.5)
@@ -371,12 +400,20 @@ async def _send_voice_split(bot, chat_id, ogg_path, article, total_duration):
 
             try:
                 dur = await get_audio_duration(chunk_path)
+                article_title = _short_caption(
+                    article.get("title", ""),
+                    fallback_body=article.get("body", ""),
+                )
+                caption = (
+                    f"{article_title}  ·  Part {idx + 1}/{n_chunks}"
+                    if article_title else f"Part {idx + 1}/{n_chunks}"
+                )
                 with open(chunk_path, "rb") as f:
                     await bot.send_voice(
                         chat_id=chat_id,
                         voice=f,
                         duration=int(dur) if dur > 0 else None,
-                        caption=f"Part {idx + 1}/{n_chunks}",
+                        caption=caption,
                     )
                 sent += 1
                 await asyncio.sleep(0.5)
