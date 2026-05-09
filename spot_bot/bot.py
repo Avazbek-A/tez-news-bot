@@ -891,14 +891,44 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ---------------------------------------------------------------------------
 
 async def cmd_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/voice                        — show current
+    /voice <name>                  — set the global default voice
+    /voice <lang> <name>           — override the voice for one language
+                                       (lang in: ru, en, uz, de, tr)
+    """
     args = context.args or []
     lang = _get_lang()
     voice_list = _build_voice_list(lang)
 
     if not args:
         current = _get_voice()
+        overrides = get_setting("voices_by_lang") or {}
+        if overrides:
+            current_str = current + " | per-lang: " + ", ".join(
+                f"{k}={v}" for k, v in sorted(overrides.items())
+            )
+        else:
+            current_str = current
         await update.message.reply_text(
-            t("voice_current", lang, voice=current, voice_list=voice_list)
+            t("voice_current", lang, voice=current_str, voice_list=voice_list)
+        )
+        return
+
+    # /voice <lang> <name> — per-language override
+    if len(args) >= 2 and args[0].lower() in {"ru", "en", "uz", "de", "tr"}:
+        per_lang = args[0].lower()
+        name = args[1].lower()
+        if name not in AVAILABLE_VOICES:
+            await update.message.reply_text(
+                t("voice_unknown", lang, name=name, voice_list=voice_list)
+            )
+            return
+        overrides = dict(get_setting("voices_by_lang") or {})
+        overrides[per_lang] = AVAILABLE_VOICES[name]
+        set_setting("voices_by_lang", overrides)
+        await update.message.reply_text(
+            t("voice_set_for_lang", lang,
+              lang_code=per_lang, voice=AVAILABLE_VOICES[name])
         )
         return
 

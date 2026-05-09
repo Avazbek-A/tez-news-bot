@@ -53,16 +53,36 @@ AVAILABLE_VOICES = {
     # Uzbek
     "madina": "uz-UZ-MadinaNeural",
     "sardor": "uz-UZ-SardorNeural",
+    # German
+    "katja": "de-DE-KatjaNeural",
+    "conrad": "de-DE-ConradNeural",
+    "killian": "de-DE-KillianNeural",
+    # Turkish
+    "emel": "tr-TR-EmelNeural",
+    "ahmet": "tr-TR-AhmetNeural",
 }
 VOICE_LANGUAGES = {
     "ru": ["dmitry", "svetlana"],
     "en": ["andrew", "ava", "emma", "brian"],
     "uz": ["madina", "sardor"],
+    "de": ["katja", "conrad", "killian"],
+    "tr": ["emel", "ahmet"],
 }
 
-# Language settings
+# Default voice per detected article language. Used by the lang-aware
+# voice picker when /voice_engine edge is set; user can override per
+# language via /voice <lang> <name>.
+DEFAULT_VOICES_BY_LANG = {
+    "ru": "ru-RU-DmitryNeural",
+    "en": "en-US-AndrewNeural",
+    "uz": "uz-UZ-MadinaNeural",
+    "de": "de-DE-ConradNeural",
+    "tr": "tr-TR-AhmetNeural",
+}
+
+# Language settings — bot UI languages
 DEFAULT_LANGUAGE = "en"
-AVAILABLE_LANGUAGES = {"en", "ru", "uz"}
+AVAILABLE_LANGUAGES = {"en", "ru", "uz", "de", "tr"}
 TTS_RATE = "+0%"
 AVAILABLE_SPEEDS = {
     "slow": "-30%",

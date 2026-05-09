@@ -43,3 +43,33 @@ def test_mostly_cyrillic_some_latin_classified_by_cyrillic():
     text = "В апреле компания Apple представила новые функции iOS"
     # Cyrillic dominates; should be Russian
     assert detect_language(text) == "ru"
+
+
+def test_german_with_eszett_is_de():
+    assert detect_language("Die Straße ist sehr groß und schön") == "de"
+
+
+def test_german_with_umlauts_is_de():
+    assert detect_language("Bundeskanzler trifft sich für ein Gespräch") == "de"
+
+
+def test_turkish_with_dotless_i_is_tr():
+    assert detect_language("Türkiye ekonomisi bu yıl büyüdü") == "tr"
+
+
+def test_turkish_with_cedilla_is_tr():
+    assert detect_language("Cumhurbaşkanı çok önemli bir konuşma yaptı") == "tr"
+
+
+def test_turkish_not_misclassified_as_german():
+    # Turkish has ö ü but ALSO ı ç ğ ş — those tip the balance
+    assert detect_language("Türk ekonomisi çok güçlü bir şekilde büyüdü") == "tr"
+
+
+def test_german_not_misclassified_as_turkish():
+    # German has ö ü but no Turkish-specific letters
+    assert detect_language("Über die Möglichkeiten der größeren Wirtschaft") == "de"
+
+
+def test_pure_english_still_en_after_adding_de_tr():
+    assert detect_language("The company announced new features yesterday") == "en"

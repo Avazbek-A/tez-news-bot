@@ -51,6 +51,10 @@ _DEFAULTS = {
     # Phase 10: TTS engine. "edge" (default) uses Microsoft Edge TTS;
     # "piper" uses the local open-source Piper engine when available.
     "voice_engine": "edge",
+    # Phase 12: per-language Edge TTS voice overrides. Empty = use the
+    # config defaults from DEFAULT_VOICES_BY_LANG. Example:
+    # {"de": "de-DE-KatjaNeural", "tr": "tr-TR-EmelNeural"}
+    "voices_by_lang": {},
 }
 
 # Cap on the in-memory reading log so user_settings.json doesn't grow forever.

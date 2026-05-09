@@ -29,6 +29,8 @@ _tts_load_lock = asyncio.Lock()
 _SUPPORTED_LANGS = {
     "en": "en",
     "ru": "ru",
+    "de": "de",
+    "tr": "tr",
 }
 
 

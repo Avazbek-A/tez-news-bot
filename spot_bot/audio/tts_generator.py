@@ -98,6 +98,30 @@ def _split_text_into_chunks(text, limit=TTS_CHUNK_CHAR_LIMIT):
     return [c for c in chunks if c.strip()]
 
 
+def _pick_voice_for_text(text: str, fallback_voice: str) -> str:
+    """Auto-pick an Edge TTS voice based on the article's detected language.
+
+    Per-language overrides come from the user's `voices_by_lang` setting;
+    defaults from config.DEFAULT_VOICES_BY_LANG. If detection is unsure
+    or the language has no mapped voice, we fall back to the user's
+    primary voice (DEFAULT_VOICE / settings.voice).
+    """
+    try:
+        from spot_bot.audio.lang_detect import detect_language
+        from spot_bot.config import DEFAULT_VOICES_BY_LANG
+        from spot_bot.settings import get_setting
+    except Exception:
+        return fallback_voice
+
+    detected = detect_language(text or "")
+    overrides = get_setting("voices_by_lang") or {}
+    if detected in overrides:
+        return overrides[detected]
+    if detected in DEFAULT_VOICES_BY_LANG:
+        return DEFAULT_VOICES_BY_LANG[detected]
+    return fallback_voice
+
+
 async def _tts_to_file(text, output_path, voice, rate, timeout):
     """Single edge-tts call with timeout. Returns output_path or None."""
     if not text or not text.strip():
@@ -184,6 +208,10 @@ async def generate_audio(text, output_path, voice=DEFAULT_VOICE, rate=TTS_RATE,
             return await generate_audio_piper(
                 text, output_path, lang=lang, speed_rate=rate,
             )
+
+    # Auto-pick a language-appropriate Edge TTS voice when possible.
+    # Falls back to the caller-supplied `voice` (legacy single-voice mode).
+    voice = _pick_voice_for_text(text, voice)
 
     # Fast path — short text, behave exactly as before
     if len(text) <= TTS_CHUNK_CHAR_LIMIT:
