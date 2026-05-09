@@ -49,33 +49,25 @@ def _build_prompt(text: str, target_lang: str) -> str:
 
 
 async def _call_groq(prompt: str, max_tokens: int) -> Optional[str]:
-    api_key = (os.environ.get("GROQ_API_KEY") or "").strip()
-    if not api_key:
+    """Translate a single prompt via the shared Groq helper. Retries on
+    429s automatically. Translation-specific post-processing (stripping
+    the model's occasional `---` / ```` echoes) stays here."""
+    from spot_bot.groq_client import chat_completion
+    text = await chat_completion(
+        prompt,
+        max_tokens=max_tokens,
+        temperature=0.2,
+        model=_DEFAULT_MODEL,
+        log_tag="translate",
+    )
+    if not text:
         return None
-    try:
-        from groq import AsyncGroq
-    except ImportError:
-        logger.warning("[translate] groq SDK not installed")
-        return None
-    try:
-        client = AsyncGroq(api_key=api_key)
-        resp = await client.chat.completions.create(
-            model=_DEFAULT_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens,
-            temperature=0.2,
-        )
-        text = (resp.choices[0].message.content or "").strip()
-        # Strip a leading "---" if the model echoed our delimiter
-        for delim in ("---", "```"):
-            if text.startswith(delim):
-                text = text[len(delim):].lstrip()
-            if text.endswith(delim):
-                text = text[:-len(delim)].rstrip()
-        return text or None
-    except Exception as e:
-        logger.warning("[translate] Groq call failed: %s", e)
-        return None
+    for delim in ("---", "```"):
+        if text.startswith(delim):
+            text = text[len(delim):].lstrip()
+        if text.endswith(delim):
+            text = text[:-len(delim)].rstrip()
+    return text or None
 
 
 async def translate_text(text: str, target_lang: str) -> Optional[str]:

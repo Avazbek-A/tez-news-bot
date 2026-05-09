@@ -53,17 +53,13 @@ def _build_prompt(title: str, body: str, lang: str) -> str:
 
 
 async def summarize(article: dict, lang: str = "en") -> str | None:
-    """Return a 2-3 sentence summary of `article`, or None on any failure."""
-    api_key = (os.environ.get("GROQ_API_KEY") or "").strip()
-    if not api_key:
-        return None
+    """Return a 2-3 sentence summary of `article`, or None on any failure.
 
-    try:
-        from groq import AsyncGroq
-    except ImportError:
-        logger.warning("[summary] groq SDK not installed; skipping")
-        return None
-
+    Goes through the shared Groq helper (spot_bot.groq_client) so
+    rate-limit retries are handled centrally. Summary-specific
+    post-processing (stripping LLM preamble like 'Here is a summary:')
+    stays here.
+    """
     body = (article.get("body") or "").strip()
     if not body:
         return None
@@ -72,23 +68,21 @@ async def summarize(article: dict, lang: str = "en") -> str | None:
 
     prompt = _build_prompt(title, body, lang)
 
-    try:
-        client = AsyncGroq(api_key=api_key)
-        resp = await client.chat.completions.create(
-            model=_DEFAULT_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=220,
-            temperature=0.3,
-        )
-        text = (resp.choices[0].message.content or "").strip()
-        # Strip common preamble patterns the model sometimes adds anyway
-        for prefix in (
-            "Here is a summary:", "Summary:", "Краткое содержание:",
-            "Резюме:", "Vot xulosa:",
-        ):
-            if text.lower().startswith(prefix.lower()):
-                text = text[len(prefix):].lstrip()
-        return text or None
-    except Exception as e:
-        logger.warning("[summary] Groq call failed: %s", e)
+    from spot_bot.groq_client import chat_completion
+    text = await chat_completion(
+        prompt,
+        max_tokens=220,
+        temperature=0.3,
+        model=_DEFAULT_MODEL,
+        log_tag="summary",
+    )
+    if not text:
         return None
+    # Strip common preamble patterns the model sometimes adds anyway.
+    for prefix in (
+        "Here is a summary:", "Summary:", "Краткое содержание:",
+        "Резюме:", "Vot xulosa:",
+    ):
+        if text.lower().startswith(prefix.lower()):
+            text = text[len(prefix):].lstrip()
+    return text or None
