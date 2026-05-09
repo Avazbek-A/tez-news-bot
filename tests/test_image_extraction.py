@@ -172,6 +172,89 @@ def test_telegram_no_photos_returns_empty_list():
     assert _extract_post_photos(msg) == []
 
 
+def test_size_variant_dedupe_keeps_largest():
+    """spot.uz often ships the same image as foo_b.webp AND foo_s.webp
+    (medium and thumbnail strip). The cleaner should collapse these to
+    a single entry at the largest size."""
+    html = """
+    <div class="articleContent">
+      <img src="https://example.com/foo_s.webp">
+      <img src="https://example.com/foo_b.webp">
+    </div>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    body = soup.find("div", class_="articleContent")
+    images = extract_images(body, base_url="")
+    # _s and _b collapse to one; _b is the larger variant
+    assert len(images) == 1
+    assert images[0]["url"].endswith("_b.webp")
+
+
+def test_size_variant_dedupe_three_sizes():
+    """Three sizes of the same image should collapse to the largest."""
+    html = """
+    <div class="articleContent">
+      <img src="https://example.com/foo_s.webp">
+      <img src="https://example.com/foo_b.webp">
+      <img src="https://example.com/foo_l.webp">
+    </div>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    body = soup.find("div", class_="articleContent")
+    images = extract_images(body, base_url="")
+    assert len(images) == 1
+    assert images[0]["url"].endswith("_l.webp")
+
+
+def test_size_variant_dedupe_preserves_order_of_first_occurrence():
+    """When the larger variant arrives later, it should replace the
+    smaller in place — preserving the position of the first occurrence."""
+    html = """
+    <div class="articleContent">
+      <img src="https://example.com/A_s.webp">
+      <img src="https://example.com/B_b.webp">
+      <img src="https://example.com/A_b.webp">
+    </div>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    body = soup.find("div", class_="articleContent")
+    images = extract_images(body, base_url="")
+    assert len(images) == 2
+    # A came first, so it stays in slot 0 — but at the larger _b size now
+    assert images[0]["url"].endswith("A_b.webp")
+    assert images[1]["url"].endswith("B_b.webp")
+
+
+def test_size_variant_dedupe_different_filenames_kept_separate():
+    """Two genuinely different images must NOT collapse just because
+    they share size suffixes."""
+    html = """
+    <div class="articleContent">
+      <img src="https://example.com/foo_b.webp">
+      <img src="https://example.com/bar_b.webp">
+    </div>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    body = soup.find("div", class_="articleContent")
+    images = extract_images(body, base_url="")
+    assert len(images) == 2
+
+
+def test_size_variant_no_recognizable_suffix_treated_as_unique():
+    """URLs without a size suffix (random.jpg) should not be deduped
+    against each other on substring match."""
+    html = """
+    <div class="articleContent">
+      <img src="https://example.com/photo1.jpg">
+      <img src="https://example.com/photo2.jpg">
+    </div>
+    """
+    soup = BeautifulSoup(html, "lxml")
+    body = soup.find("div", class_="articleContent")
+    images = extract_images(body, base_url="")
+    assert len(images) == 2
+
+
 def test_telegram_handles_double_quotes_in_style():
     html = """
     <div class="tgme_widget_message">

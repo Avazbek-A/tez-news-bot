@@ -148,6 +148,49 @@ def _largest_from_srcset(srcset: str) -> str:
     return candidates[-1][1]
 
 
+# Spot.uz (and many other CMSes) ship the same image at multiple sizes,
+# distinguished by a single-letter suffix before the extension:
+#   foo_s.webp   small / thumbnail strip
+#   foo_m.webp   medium
+#   foo_b.webp   big (article body inline view)
+#   foo_l.webp   large / full-screen lightbox
+# We want to dedupe by base filename and keep the largest variant.
+_SIZE_SUFFIX_RE = re.compile(r"_(?P<sz>[a-z]{1,2})\.(?P<ext>[a-z0-9]{2,5})$")
+_SIZE_RANK = {
+    # higher = larger / preferred
+    "xl": 60,
+    "l": 50,
+    "lg": 50,
+    "b": 40,  # spot.uz "big"
+    "m": 30,
+    "md": 30,
+    "s": 20,
+    "sm": 20,
+    "xs": 10,
+    "t": 5,   # thumbnail
+}
+
+
+def _size_rank_and_key(url: str) -> tuple[int, str]:
+    """Return (rank, dedupe_key) for an image URL.
+
+    rank: higher = larger / preferred. 0 means we couldn't detect a size.
+    dedupe_key: URL with the size suffix stripped, so `foo_s.webp` and
+                `foo_b.webp` collapse to the same key.
+    """
+    if not url:
+        return (0, url)
+    m = _SIZE_SUFFIX_RE.search(url)
+    if not m:
+        return (0, url)
+    rank = _SIZE_RANK.get(m.group("sz").lower(), 0)
+    if rank == 0:
+        return (0, url)
+    # Strip the suffix from the dedupe key, keep the extension
+    base = url[: m.start()] + "." + m.group("ext")
+    return (rank, base)
+
+
 def _img_best_url(img) -> str:
     """Pick the best URL for an <img> tag, trying multiple lazy-load
     conventions. Returns '' if nothing usable is present."""
@@ -180,8 +223,13 @@ def extract_images(body_elem, base_url=""):
     Returns list of {"url": ..., "alt": ...} dicts. Order preserved
     (cover image first, body images in DOM order).
     """
-    images = []
-    seen_urls: set[str] = set()
+    # candidates[dedupe_key] = (rank, list_index)
+    # We append a candidate to `images` then, when a larger variant comes
+    # in, swap it in place so order is preserved (cover stays first, body
+    # in DOM order). For URLs without a recognizable size suffix, the
+    # dedupe_key is the raw URL and only exact duplicates are dropped.
+    images: list[dict] = []
+    candidates: dict[str, tuple[int, int]] = {}
     handled_imgs = set()
 
     def _add(url: str, alt: str = ""):
@@ -193,10 +241,20 @@ def extract_images(body_elem, base_url=""):
             return
         if _TRACKER_PATTERN.search(url):
             return
-        if url in seen_urls:
+        rank, key = _size_rank_and_key(url)
+        existing = candidates.get(key)
+        if existing is None:
+            idx = len(images)
+            images.append({"url": url, "alt": (alt or "").strip()})
+            candidates[key] = (rank, idx)
             return
-        seen_urls.add(url)
-        images.append({"url": url, "alt": (alt or "").strip()})
+        existing_rank, existing_idx = existing
+        if rank > existing_rank:
+            # Larger variant wins — swap in place to preserve position.
+            images[existing_idx] = {
+                "url": url, "alt": (alt or "").strip(),
+            }
+            candidates[key] = (rank, existing_idx)
 
     # First pass: <a class="lightbox-img" href="..."> wraps the
     # full-resolution version. Capture the href and mark the inner
