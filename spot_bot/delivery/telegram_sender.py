@@ -65,6 +65,21 @@ def _short_caption(title: str, fallback_body: str = "") -> str:
     return text
 
 
+def _extract_post_id(article: dict) -> str:
+    """Pull the numeric Telegram post ID out of an article's `id` field.
+
+    Telegram posts come in as "spotuz/35808"; we want the trailing
+    "35808". RSS articles use a different `id` shape (`<source>/<hash>`)
+    and shouldn't display a numeric post ID, so we only return the
+    suffix when it parses as an integer.
+    """
+    raw = (article.get("id") or "")
+    if "/" not in raw:
+        return ""
+    suffix = raw.split("/")[-1]
+    return suffix if suffix.isdigit() else ""
+
+
 async def send_articles_as_text(bot: Bot, chat_id: int, articles: list,
                                 bookmark_label: str = "🔖 Save",
                                 share_label: str = "📤 Share",
@@ -477,6 +492,12 @@ async def send_voice_messages(bot: Bot, chat_id: int, results: list,
                 article.get("title", ""),
                 fallback_body=article.get("body", ""),
             )
+            # Append #post_id so the user can see which channel post
+            # this voice message corresponds to (matches the footer
+            # used in inline-text mode).
+            pid = _extract_post_id(article)
+            if pid:
+                caption = (caption + f"  ·  #{pid}").strip()
 
             resume_kb = InlineKeyboardMarkup([[
                 InlineKeyboardButton(
@@ -721,9 +742,20 @@ async def _send_chapter_list(bot: Bot, chat_id: int, chapters: list, lang: str):
         title = _short_caption(
             article.get("title", ""),
             fallback_body=article.get("body", ""),
-        ) or article.get("id", "")
+        )
+        pid = _extract_post_id(article)
+        # Prefer "Title #pid". Fall back to "#pid" alone when title is
+        # empty, then to the raw article id as last resort.
+        if title and pid:
+            label = f"{title}  ·  #{pid}"
+        elif title:
+            label = title
+        elif pid:
+            label = f"#{pid}"
+        else:
+            label = article.get("id", "")
         ts = format_timestamp(start_seconds)
-        lines.append(f"{ts} — {title}")
+        lines.append(f"{ts} — {label}")
 
     text = "\n".join(lines)
     # Telegram message limit is 4096 chars. Trim with an ellipsis if longer.

@@ -91,6 +91,11 @@ async def _process_post(client: httpx.AsyncClient, post, semaphore,
 
     telegram_text = clean_telegram_text(post.get("text_html", ""))
     date = post.get("date", "")
+    # Carry the Telegram-channel post id through to the article. Downstream
+    # display layers (text, file, voice caption, chapter list, bookmark
+    # buttons, translation cache) all key off article["id"], so dropping
+    # it here makes post IDs invisible everywhere.
+    post_id = post.get("id", "")
 
     # Find spot.uz link
     link = None
@@ -108,6 +113,7 @@ async def _process_post(client: httpx.AsyncClient, post, semaphore,
     if not link:
         await _tick()
         return {
+            "id": post_id,
             "title": "",
             "body": telegram_text,
             "date": date,
@@ -121,17 +127,20 @@ async def _process_post(client: httpx.AsyncClient, post, semaphore,
                 resp = await client.get(link)
             except (httpx.TimeoutException, httpx.NetworkError) as nav_e:
                 logger.warning("Nav error for %s: %s", link, nav_e)
-                return _telegram_fallback(telegram_text, date, [])
+                return _telegram_fallback(telegram_text, date, [],
+                                          post_id=post_id)
 
             if resp.status_code != 200:
                 logger.warning("HTTP %d for %s", resp.status_code, link)
                 return _telegram_fallback(telegram_text, date,
-                                          tg_photos if include_images else [])
+                                          tg_photos if include_images else [],
+                                          post_id=post_id)
 
             content = resp.text
             if not content:
                 return _telegram_fallback(telegram_text, date,
-                                          tg_photos if include_images else [])
+                                          tg_photos if include_images else [],
+                                          post_id=post_id)
 
             headline, body, images = clean_html(content, base_url=link)
 
@@ -152,9 +161,11 @@ async def _process_post(client: httpx.AsyncClient, post, semaphore,
                 return _telegram_fallback(
                     telegram_text, date, merged_images,
                     title=headline or "",
+                    post_id=post_id,
                 )
 
             return {
+                "id": post_id,
                 "title": headline or "",
                 "body": body,
                 "date": date,
@@ -165,13 +176,15 @@ async def _process_post(client: httpx.AsyncClient, post, semaphore,
         except Exception as e:
             logger.warning("Error fetching %s: %s", post.get("id"), e)
             return _telegram_fallback(telegram_text, date,
-                                      tg_photos if include_images else [])
+                                      tg_photos if include_images else [],
+                                      post_id=post_id)
         finally:
             await _tick()
 
 
-def _telegram_fallback(telegram_text, date, images, title=""):
+def _telegram_fallback(telegram_text, date, images, title="", post_id=""):
     return {
+        "id": post_id,
         "title": title,
         "body": telegram_text,
         "date": date,
