@@ -144,18 +144,24 @@ async def _process_post(client: httpx.AsyncClient, post, semaphore,
 
             headline, body, images = clean_html(content, base_url=link)
 
-            # Merge: Telegram post photos first, then spot.uz article
-            # images. Order matters — TG photos are usually the cover/lead
-            # photos shown in the channel preview; the article body images
-            # follow naturally.
+            # Image source policy:
+            # When we successfully fetched the spot.uz article, the
+            # article's own cover image (from <a class="lightbox-img">)
+            # is the same photo as Telegram's preview cover, just on a
+            # stable URL. Including both gives the user a duplicate
+            # cover. Prefer the spot.uz versions exclusively when we
+            # got any — they're stable, larger, and don't expire.
+            # Fall back to Telegram photos only when the spot.uz fetch
+            # produced nothing usable (handled by _telegram_fallback
+            # callers above).
             merged_images = []
             if include_images:
-                seen: set[str] = set()
-                for img in (tg_photos + (images or [])):
-                    url = img.get("url") if isinstance(img, dict) else ""
-                    if url and url not in seen:
-                        seen.add(url)
-                        merged_images.append(img)
+                if images:
+                    merged_images = list(images)
+                else:
+                    # No body images on the spot.uz page — keep TG-CDN
+                    # photos as the only available illustration.
+                    merged_images = list(tg_photos)
 
             if not body:
                 return _telegram_fallback(

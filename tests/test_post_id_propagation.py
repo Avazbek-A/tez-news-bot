@@ -153,3 +153,70 @@ def test_extract_post_id_non_numeric_suffix_returns_empty():
 def test_extract_post_id_missing_returns_empty():
     from spot_bot.delivery import telegram_sender as ts
     assert ts._extract_post_id({}) == ""
+
+
+# ---------- TG-CDN cover vs spot.uz cover: prefer spot.uz only ----------
+
+@pytest.mark.asyncio
+async def test_spot_uz_images_supersede_tg_photos(monkeypatch):
+    """When a post has both Telegram-CDN preview photos AND a spot.uz
+    article with images, the TG-CDN photos must be dropped — they're
+    visually duplicates of the spot.uz cover but on a different URL,
+    so naive URL-dedupe lets both through and the user sees the same
+    image twice."""
+    post = _make_post(tg_photos=[{"url": "https://cdn.tg/cover.jpg"}])
+    sem = asyncio.Semaphore(1)
+    resp = MagicMock(status_code=200, text="<html>ok</html>")
+    client = MagicMock()
+    client.get = AsyncMock(return_value=resp)
+
+    spot_images = [
+        {"url": "https://www.spot.uz/media/cover_l.webp", "alt": "cover"},
+        {"url": "https://www.spot.uz/media/body1_l.webp", "alt": ""},
+    ]
+    monkeypatch.setattr(
+        af, "clean_html",
+        lambda content, base_url="": ("Headline", "Body" * 50, spot_images),
+    )
+
+    result = await af._process_post(client, post, sem, include_images=True)
+    urls = [img["url"] for img in result["images"]]
+    # No telesco.pe URL — TG-CDN cover dropped in favor of spot.uz cover.
+    assert all("cdn.tg" not in u for u in urls)
+    assert urls == [
+        "https://www.spot.uz/media/cover_l.webp",
+        "https://www.spot.uz/media/body1_l.webp",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_tg_photos_used_when_no_spot_uz_images(monkeypatch):
+    """When the spot.uz article has no body images, fall back to TG-CDN
+    photos so we don't ship an image-less article that should have one."""
+    post = _make_post(tg_photos=[{"url": "https://cdn.tg/photo.jpg"}])
+    sem = asyncio.Semaphore(1)
+    resp = MagicMock(status_code=200, text="<html>ok</html>")
+    client = MagicMock()
+    client.get = AsyncMock(return_value=resp)
+
+    monkeypatch.setattr(
+        af, "clean_html",
+        lambda content, base_url="": ("Headline", "Body" * 50, []),
+    )
+
+    result = await af._process_post(client, post, sem, include_images=True)
+    urls = [img["url"] for img in result["images"]]
+    assert urls == ["https://cdn.tg/photo.jpg"]
+
+
+@pytest.mark.asyncio
+async def test_tg_photos_used_for_telegram_only_post():
+    """No spot.uz link at all → tg_photos are the only source."""
+    post = _make_post(
+        has_link=False,
+        tg_photos=[{"url": "https://cdn.tg/x.jpg"}],
+    )
+    sem = asyncio.Semaphore(1)
+    client = MagicMock()
+    result = await af._process_post(client, post, sem, include_images=True)
+    assert [img["url"] for img in result["images"]] == ["https://cdn.tg/x.jpg"]
