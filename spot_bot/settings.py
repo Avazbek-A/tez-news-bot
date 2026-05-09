@@ -29,6 +29,10 @@ _DEFAULTS = {
     # When True, the cleaner keeps ad markers + contact footers so ad-style
     # articles arrive intact. Default False matches the historical behavior.
     "include_ads": False,
+    # Phase 6: per-chat resume marker (set when user taps "📍 Mark here"
+    # under a voice message). Shape: {"chat_id": int, "msg_id": int,
+    # "marked_at": unix-epoch-int}. None when nothing marked yet.
+    "resume_marker": None,
 }
 
 # Cap on the in-memory reading log so user_settings.json doesn't grow forever.

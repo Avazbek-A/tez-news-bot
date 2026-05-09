@@ -340,12 +340,19 @@ async def send_voice_messages(bot: Bot, chat_id: int, results: list,
                 fallback_body=article.get("body", ""),
             )
 
+            resume_kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "📍 Mark here",
+                    callback_data="resume_mark",
+                ),
+            ]])
             with open(out_path, "rb") as f:
                 await bot.send_voice(
                     chat_id=chat_id,
                     voice=f,
                     duration=int(duration) if duration > 0 else None,
                     caption=caption or None,
+                    reply_markup=resume_kb,
                 )
             sent += 1
             await asyncio.sleep(0.5)
@@ -452,12 +459,19 @@ async def send_combined_voice(bot: Bot, chat_id: int, results: list,
                     suffix = f"  ·  {len(mp3_paths)} articles" if len(mp3_paths) > 1 else ""
                 caption_text = (lead_title + suffix).strip() or None
 
+                resume_kb = InlineKeyboardMarkup([[
+                    InlineKeyboardButton(
+                        "📍 Mark here",
+                        callback_data="resume_mark",
+                    ),
+                ]])
                 with open(out, "rb") as f:
                     await bot.send_voice(
                         chat_id=chat_id,
                         voice=f,
                         duration=int(duration) if duration > 0 else None,
                         caption=caption_text,
+                        reply_markup=resume_kb,
                     )
                 delivered += len(mp3_paths)
                 await asyncio.sleep(0.5)

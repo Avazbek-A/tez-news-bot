@@ -49,7 +49,8 @@ _STRINGS = {
             "/find <query> — Search past delivered articles\n"
             "/unread — Count new articles since last scrape\n"
             "/bookmarks — List saved articles\n"
-            "/unbookmark <id> — Remove a bookmark\n\n"
+            "/unbookmark <id> — Remove a bookmark\n"
+            "/resume — Jump to last marked voice message (📍 button)\n\n"
             "Sources:\n"
             "/sources — List configured sources\n"
             "/addsource <type> <url> [label] — Add (type: telegram or rss)\n"
@@ -98,7 +99,8 @@ _STRINGS = {
             "/find <запрос> — Поиск по полученным статьям\n"
             "/unread — Сколько новых статей с прошлого сбора\n"
             "/bookmarks — Список сохранённых статей\n"
-            "/unbookmark <id> — Удалить закладку\n\n"
+            "/unbookmark <id> — Удалить закладку\n"
+            "/resume — Перейти к отмеченному голосовому (кнопка 📍)\n\n"
             "Источники:\n"
             "/sources — Список настроенных источников\n"
             "/addsource <тип> <url> [название] — Добавить (тип: telegram или rss)\n"
@@ -147,7 +149,8 @@ _STRINGS = {
             "/find <so'rov> — Olingan maqolalar orasidan qidirish\n"
             "/unread — Oxirgi yig'ishdan beri qancha yangi maqola\n"
             "/bookmarks — Saqlangan maqolalar ro'yxati\n"
-            "/unbookmark <id> — Xatcho'pni olib tashlash\n\n"
+            "/unbookmark <id> — Xatcho'pni olib tashlash\n"
+            "/resume — Belgilangan ovozli xabarga o'tish (📍 tugmasi)\n\n"
             "Manbalar:\n"
             "/sources — Sozlangan manbalar ro'yxati\n"
             "/addsource <turi> <url> [nomi] — Qo'shish (turi: telegram yoki rss)\n"
@@ -577,6 +580,26 @@ _STRINGS = {
         "en": "🔎 {n} match(es) for '{query}':",
         "ru": "🔎 {n} совпадений для '{query}':",
         "uz": "🔎 '{query}' bo'yicha {n} ta moslik:",
+    },
+    "resume_marked_toast": {
+        "en": "📍 Resume point set",
+        "ru": "📍 Точка возврата установлена",
+        "uz": "📍 Davom etish nuqtasi belgilandi",
+    },
+    "resume_none": {
+        "en": "No resume point set yet. Tap 📍 Mark here under any voice message to set one.",
+        "ru": "Точка возврата не установлена. Нажмите 📍 Mark here под голосовым сообщением.",
+        "uz": "Davom etish nuqtasi yo'q. Ovozli xabar ostidagi 📍 Mark here ni bosing.",
+    },
+    "resume_pointer": {
+        "en": "📍 You marked this voice message. Tap to play, scrub to where you stopped.",
+        "ru": "📍 Вы отметили это голосовое. Нажмите воспроизвести и прокрутите туда, где остановились.",
+        "uz": "📍 Bu ovozli xabarni belgilagansiz. Bosing va qayerda to'xtagan bo'lsangiz, o'sha joyga o'tib oling.",
+    },
+    "resume_lost": {
+        "en": "Couldn't find the marked message — it may have been deleted from chat history.",
+        "ru": "Отмеченное сообщение не найдено — возможно, оно удалено.",
+        "uz": "Belgilangan xabar topilmadi — ehtimol, o'chirilgan.",
     },
 
     # /auto cron-mode strings

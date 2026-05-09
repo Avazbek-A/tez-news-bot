@@ -1180,6 +1180,66 @@ async def cmd_ads(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# Audio resume markers
+# ---------------------------------------------------------------------------
+
+async def _handle_resume_mark(update: Update,
+                              context: ContextTypes.DEFAULT_TYPE):
+    """Tap on the "📍 Mark here" button below a voice message — saves the
+    chat_id + message_id so /resume can scroll back to it later."""
+    import time as _time
+    query = update.callback_query
+    chat_id = query.message.chat_id if query.message else update.effective_chat.id
+    msg_id = query.message.message_id if query.message else None
+    lang = _get_lang()
+    if msg_id is None:
+        try:
+            await query.answer()
+        except Exception:
+            pass
+        return
+    set_setting("resume_marker", {
+        "chat_id": chat_id,
+        "msg_id": msg_id,
+        "marked_at": int(_time.time()),
+    })
+    try:
+        await query.answer(t("resume_marked_toast", lang), show_alert=False)
+    except Exception:
+        pass
+
+
+async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Reply pointing at the most recently marked voice message."""
+    lang = _get_lang()
+    marker = get_setting("resume_marker") or {}
+    if not marker or not marker.get("msg_id"):
+        await update.message.reply_text(t("resume_none", lang))
+        return
+
+    chat_id = update.effective_chat.id
+    if marker.get("chat_id") != chat_id:
+        # Marker was set in a different chat (shouldn't happen for personal
+        # bot but safe-guard anyway). Treat as none.
+        await update.message.reply_text(t("resume_none", lang))
+        return
+
+    try:
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=t("resume_pointer", lang),
+            reply_to_message_id=marker["msg_id"],
+            disable_notification=True,
+        )
+    except Exception as e:
+        # The marked message may have been deleted from chat history.
+        logger.warning("[resume] reply failed: %s", e)
+        await update.message.reply_text(
+            t("resume_lost", lang)
+        )
+
+
+# ---------------------------------------------------------------------------
 # /find <query> — search delivered articles
 # ---------------------------------------------------------------------------
 
@@ -1852,6 +1912,7 @@ def create_app():
     app.add_handler(CommandHandler("thisweek", cmd_thisweek))
     app.add_handler(CommandHandler("since", cmd_since))
     app.add_handler(CommandHandler("find", cmd_find))
+    app.add_handler(CommandHandler("resume", cmd_resume))
     app.add_handler(CommandHandler("unread", cmd_unread))
     app.add_handler(CommandHandler("bookmarks", cmd_bookmarks))
     app.add_handler(CommandHandler("unbookmark", cmd_unbookmark))
@@ -1869,6 +1930,10 @@ def create_app():
     app.add_handler(CallbackQueryHandler(
         _handle_bookmark_callback,
         pattern=r"^bookmark_",
+    ))
+    app.add_handler(CallbackQueryHandler(
+        _handle_resume_mark,
+        pattern=r"^resume_mark$",
     ))
     app.add_error_handler(_on_unhandled_error)
 
