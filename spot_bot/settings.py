@@ -23,6 +23,9 @@ _DEFAULTS = {
     # Phase 5: multi-source. Items: {id, type ('telegram'|'rss'), url, label}.
     # If empty/None at load time, migrate from channel_url for backward compat.
     "sources": [],
+    # When True, the cleaner keeps ad markers + contact footers so ad-style
+    # articles arrive intact. Default False matches the historical behavior.
+    "include_ads": False,
 }
 
 # Cap on the in-memory reading log so user_settings.json doesn't grow forever.

@@ -39,6 +39,7 @@ _STRINGS = {
             "/speed fast — Change audio speed\n"
             "/lang en — Change language (en/ru/uz)\n"
             "/order newest|oldest — Default delivery order\n"
+            "/ads on|off — Include ads/sponsored content\n"
             "/channel — Show/change source channel\n"
             "/status — Show current settings\n\n"
             "Reading log:\n"
@@ -83,6 +84,7 @@ _STRINGS = {
             "/speed fast — Скорость аудио\n"
             "/lang ru — Сменить язык (en/ru/uz)\n"
             "/order newest|oldest — Порядок отправки по умолчанию\n"
+            "/ads on|off — Включать рекламу/спонсорский контент\n"
             "/channel — Канал-источник\n"
             "/status — Текущие настройки\n\n"
             "История:\n"
@@ -127,6 +129,7 @@ _STRINGS = {
             "/speed fast — Audio tezligi\n"
             "/lang uz — Tilni o'zgartirish (en/ru/uz)\n"
             "/order newest|oldest — Standart yetkazib berish tartibi\n"
+            "/ads on|off — Reklamalarni qo'shish\n"
             "/channel — Manba kanali\n"
             "/status — Joriy sozlamalar\n\n"
             "O'qish tarixi:\n"
@@ -453,6 +456,43 @@ _STRINGS = {
         "en": "No source with id '{id}'. Use /sources to list.",
         "ru": "Источник '{id}' не найден. См. /sources.",
         "uz": "'{id}' nomli manba topilmadi. /sources ni ko'ring.",
+    },
+
+    # /ads — toggle ad/sponsored content inclusion
+    "ads_status_on": {
+        "en": "Ads are currently INCLUDED. Use /ads off to filter them out.",
+        "ru": "Реклама сейчас ВКЛЮЧЕНА. Чтобы фильтровать — /ads off.",
+        "uz": "Reklamalar hozir KIRITILGAN. Filtrlash uchun /ads off.",
+    },
+    "ads_status_off": {
+        "en": "Ads are currently FILTERED OUT. Use /ads on to keep them.",
+        "ru": "Реклама сейчас ФИЛЬТРУЕТСЯ. Чтобы оставлять — /ads on.",
+        "uz": "Reklamalar hozir FILTRLANYAPTI. Saqlash uchun /ads on.",
+    },
+    "ads_set_on": {
+        "en": "✅ Ads will now be included in scraped articles.",
+        "ru": "✅ Реклама теперь будет оставаться в собранных статьях.",
+        "uz": "✅ Endi reklamalar maqolalarda saqlanadi.",
+    },
+    "ads_set_off": {
+        "en": "✅ Ads will now be filtered out of scraped articles.",
+        "ru": "✅ Реклама теперь будет фильтроваться из статей.",
+        "uz": "✅ Endi reklamalar maqolalardan chiqariladi.",
+    },
+    "ads_unknown": {
+        "en": "Unknown choice '{choice}'. Use /ads on or /ads off.",
+        "ru": "Непонятное значение '{choice}'. Используйте /ads on или /ads off.",
+        "uz": "Noma'lum '{choice}'. /ads on yoki /ads off ni ishlating.",
+    },
+    "status_ads_on": {
+        "en": "Ads: included",
+        "ru": "Реклама: включена",
+        "uz": "Reklamalar: saqlanadi",
+    },
+    "status_ads_off": {
+        "en": "Ads: filtered",
+        "ru": "Реклама: фильтруется",
+        "uz": "Reklamalar: filtrlanyapti",
     },
     "sending_combined": {
         "en": "Sending combined audio...",

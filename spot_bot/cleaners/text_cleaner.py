@@ -34,11 +34,16 @@ _PROMO_PATTERNS = [
 _SENTENCE_ENDERS = frozenset(".!?")
 
 
-def clean_article(text):
+def clean_article(text, include_ads=False):
     """Clean a single article's text for reading and TTS consumption.
 
     Removes noise, promotional footers, cross-references, URLs, and
     normalizes paragraph structure for smooth reading flow.
+
+    When include_ads=True, ad markers ("Реклама", "На правах рекламы"),
+    contact-info footer lines (Сайт/Instagram/Телефон/etc.), and the
+    trailing-footer-block strip are all DISABLED, so ad-only articles
+    survive intact.
     """
     if not text:
         return ""
@@ -47,18 +52,19 @@ def clean_article(text):
     cleaned = []
 
     for para in paragraphs:
-        para = _clean_paragraph(para)
+        para = _clean_paragraph(para, include_ads=include_ads)
         if para:
             cleaned.append(para)
 
     # Remove trailing footer block (social links often cluster at the end)
-    while cleaned and _is_footer_line(cleaned[-1]):
-        cleaned.pop()
+    if not include_ads:
+        while cleaned and _is_footer_line(cleaned[-1]):
+            cleaned.pop()
 
     return "\n\n".join(cleaned)
 
 
-def _clean_paragraph(text):
+def _clean_paragraph(text, include_ads=False):
     """Clean a single paragraph. Returns empty string if it should be removed."""
     text = text.strip()
     if not text:
@@ -84,14 +90,13 @@ def _clean_paragraph(text):
     if _CROSS_REF.search(text):
         return ""
 
-    # Remove promo markers
-    for pattern in _PROMO_PATTERNS:
-        if pattern.match(text):
+    # Ad / promo / contact-footer suppression — disabled when include_ads
+    if not include_ads:
+        for pattern in _PROMO_PATTERNS:
+            if pattern.match(text):
+                return ""
+        if _is_footer_line(text):
             return ""
-
-    # Remove footer-style lines
-    if _is_footer_line(text):
-        return ""
 
     # Strip URLs (they sound terrible when read aloud)
     text = _URL_PATTERN.sub("", text)
@@ -126,12 +131,15 @@ def _is_footer_line(text):
     return False
 
 
-def clean_batch(articles):
+def clean_batch(articles, include_ads=False):
     """Clean a list of article dicts in place. Each dict should have 'body' key.
 
-    Returns the same list with cleaned body text.
+    Returns the same list with cleaned body text. When include_ads=True, ad
+    markers and contact-footer noise are preserved.
     """
     for article in articles:
         if article.get("body"):
-            article["body"] = clean_article(article["body"])
+            article["body"] = clean_article(
+                article["body"], include_ads=include_ads,
+            )
     return articles

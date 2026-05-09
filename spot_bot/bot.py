@@ -972,6 +972,36 @@ async def cmd_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# /ads — toggle whether ads + sponsored content are kept in output
+# ---------------------------------------------------------------------------
+
+async def cmd_ads(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args or []
+    lang = _get_lang()
+    current = bool(get_setting("include_ads"))
+
+    if not args:
+        await update.message.reply_text(
+            t("ads_status_on" if current else "ads_status_off", lang)
+        )
+        return
+
+    choice = args[0].lower()
+    if choice in ("on", "1", "yes", "include", "true"):
+        new_value = True
+    elif choice in ("off", "0", "no", "exclude", "false"):
+        new_value = False
+    else:
+        await update.message.reply_text(t("ads_unknown", lang, choice=choice))
+        return
+
+    set_setting("include_ads", new_value)
+    await update.message.reply_text(
+        t("ads_set_on" if new_value else "ads_set_off", lang)
+    )
+
+
+# ---------------------------------------------------------------------------
 # /unread — show how many new articles since last delivery
 # ---------------------------------------------------------------------------
 
@@ -1238,18 +1268,20 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lang_names = {"en": "English", "ru": "Русский", "uz": "O'zbek"}
     lang_display = lang_names.get(lang, lang)
 
-    await update.message.reply_text(
-        t("status", lang,
-          channel=channel,
-          voice=voice,
-          speed=speed,
-          language=lang_display,
-          auto=auto_info,
-          job=t("status_yes", lang) if has_job else t("status_no", lang),
-          default_count=DEFAULT_SCRAPE_COUNT,
-          max_count=MAX_SCRAPE_COUNT,
-          max_offset=MAX_OFFSET)
+    body = t("status", lang,
+        channel=channel,
+        voice=voice,
+        speed=speed,
+        language=lang_display,
+        auto=auto_info,
+        job=t("status_yes", lang) if has_job else t("status_no", lang),
+        default_count=DEFAULT_SCRAPE_COUNT,
+        max_count=MAX_SCRAPE_COUNT,
+        max_offset=MAX_OFFSET,
     )
+    keep_ads = bool(get_setting("include_ads"))
+    body += "\n" + t("status_ads_on" if keep_ads else "status_ads_off", lang)
+    await update.message.reply_text(body)
 
 
 # ---------------------------------------------------------------------------
@@ -1478,6 +1510,7 @@ def create_app():
     app.add_handler(CommandHandler("order", cmd_order))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("auto", cmd_auto))
+    app.add_handler(CommandHandler("ads", cmd_ads))
     app.add_handler(CommandHandler("unread", cmd_unread))
     app.add_handler(CommandHandler("bookmarks", cmd_bookmarks))
     app.add_handler(CommandHandler("unbookmark", cmd_unbookmark))

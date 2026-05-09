@@ -190,7 +190,8 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
     # 3. Clean text for reading/TTS
     _check_cancelled(cancel_event)
     await _report("[3/4] Cleaning text...")
-    articles = clean_batch(articles)
+    keep_ads = bool(get_setting("include_ads"))
+    articles = clean_batch(articles, include_ads=keep_ads)
 
     # Filter out articles with empty body
     articles = [a for a in articles if a.get("body", "").strip()]
