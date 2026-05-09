@@ -43,6 +43,9 @@ _STRINGS = {
             "/lang en — Change language (en/ru/uz)\n"
             "/order newest|oldest — Default delivery order\n"
             "/ads on|off — Include ads/sponsored content\n"
+            "/quality <chars> — Min article length (0 = off)\n"
+            "/topics <kw...> | off — Filter by keywords\n"
+            "/dedup <0-100> — Collapse near-duplicate titles\n"
             "/channel — Show/change source channel\n"
             "/status — Show current settings\n\n"
             "Reading log:\n"
@@ -93,6 +96,9 @@ _STRINGS = {
             "/lang ru — Сменить язык (en/ru/uz)\n"
             "/order newest|oldest — Порядок отправки по умолчанию\n"
             "/ads on|off — Включать рекламу/спонсорский контент\n"
+            "/quality <число> — Минимальная длина статьи (0 = выкл.)\n"
+            "/topics <слова...> | off — Фильтр по ключам\n"
+            "/dedup <0-100> — Схлопывать похожие заголовки\n"
             "/channel — Канал-источник\n"
             "/status — Текущие настройки\n\n"
             "История:\n"
@@ -143,6 +149,9 @@ _STRINGS = {
             "/lang uz — Tilni o'zgartirish (en/ru/uz)\n"
             "/order newest|oldest — Standart yetkazib berish tartibi\n"
             "/ads on|off — Reklamalarni qo'shish\n"
+            "/quality <belgi> — Maqola minimal uzunligi (0 = o'chiq)\n"
+            "/topics <so'zlar...> | off — Kalit so'zlar bo'yicha filtr\n"
+            "/dedup <0-100> — O'xshash sarlavhalarni birlashtirish\n"
             "/channel — Manba kanali\n"
             "/status — Joriy sozlamalar\n\n"
             "O'qish tarixi:\n"
@@ -601,6 +610,58 @@ _STRINGS = {
         "ru": "Отмеченное сообщение не найдено — возможно, оно удалено.",
         "uz": "Belgilangan xabar topilmadi — ehtimol, o'chirilgan.",
     },
+
+    # Smart filters
+    "quality_off": {"en": "Quality filter is OFF (no min length).",
+                    "ru": "Фильтр качества ВЫКЛ.",
+                    "uz": "Sifat filtri O'CHIQ."},
+    "quality_status": {"en": "Quality filter: drop articles under {n} chars.",
+                       "ru": "Фильтр качества: пропускать статьи короче {n} символов.",
+                       "uz": "Sifat filtri: {n} belgidan qisqa maqolalar tashlanadi."},
+    "quality_usage": {"en": "Usage: /quality <chars>  (e.g. /quality 200)\nUse 0 to disable.",
+                      "ru": "Использование: /quality <число>  (напр. /quality 200)\n0 — отключить.",
+                      "uz": "Foydalanish: /quality <son>  (masalan /quality 200)\n0 — o'chirish."},
+    "quality_range": {"en": "Threshold must be 0..10000.",
+                      "ru": "Порог должен быть 0..10000.",
+                      "uz": "Chegara 0..10000 bo'lishi kerak."},
+    "quality_set_off": {"en": "✅ Quality filter disabled.",
+                        "ru": "✅ Фильтр качества отключён.",
+                        "uz": "✅ Sifat filtri o'chirildi."},
+    "quality_set_on": {"en": "✅ Quality threshold set to {n} chars.",
+                       "ru": "✅ Порог качества: {n} символов.",
+                       "uz": "✅ Sifat chegarasi: {n} belgi."},
+
+    "topics_off": {"en": "Topic filter is OFF (all articles delivered).",
+                   "ru": "Фильтр тем ВЫКЛ (доставляются все статьи).",
+                   "uz": "Mavzu filtri O'CHIQ (hamma maqolalar yuboriladi)."},
+    "topics_status": {"en": "Topic filter ON. Keywords: {list}",
+                      "ru": "Фильтр тем ВКЛ. Ключи: {list}",
+                      "uz": "Mavzu filtri YOQ. Kalit so'zlar: {list}"},
+    "topics_set_off": {"en": "✅ Topic filter disabled.",
+                       "ru": "✅ Фильтр тем отключён.",
+                       "uz": "✅ Mavzu filtri o'chirildi."},
+    "topics_set_on": {"en": "✅ Topic filter on: {list}",
+                      "ru": "✅ Фильтр тем включён: {list}",
+                      "uz": "✅ Mavzu filtri yoqildi: {list}"},
+
+    "dedup_off": {"en": "Duplicate filter is OFF.",
+                  "ru": "Фильтр дублей ВЫКЛ.",
+                  "uz": "Takrorlar filtri O'CHIQ."},
+    "dedup_status": {"en": "Duplicate filter: collapse titles ≥ {n}% similar.",
+                     "ru": "Фильтр дублей: схлопывать заголовки от {n}% похожести.",
+                     "uz": "Takrorlar filtri: {n}% va undan yuqori o'xshash sarlavhalar birlashtiriladi."},
+    "dedup_usage": {"en": "Usage: /dedup <0-100>  (100 = disabled)",
+                    "ru": "Использование: /dedup <0-100>  (100 = выкл.)",
+                    "uz": "Foydalanish: /dedup <0-100>  (100 = o'chiq)"},
+    "dedup_range": {"en": "Threshold must be 0..100.",
+                    "ru": "Порог должен быть 0..100.",
+                    "uz": "Chegara 0..100 bo'lishi kerak."},
+    "dedup_set_off": {"en": "✅ Duplicate filter disabled.",
+                      "ru": "✅ Фильтр дублей отключён.",
+                      "uz": "✅ Takrorlar filtri o'chirildi."},
+    "dedup_set_on": {"en": "✅ Duplicate threshold set to {n}%.",
+                     "ru": "✅ Порог дублей: {n}%.",
+                     "uz": "✅ Takrorlar chegarasi: {n}%."},
 
     # /auto cron-mode strings
     "auto_usage": {

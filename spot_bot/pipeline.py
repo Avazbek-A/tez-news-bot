@@ -198,6 +198,9 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
 
     # Filter out articles with empty body
     articles = [a for a in articles if a.get("body", "").strip()]
+
+    # Smart filtering: quality, topic, duplicates
+    articles = _apply_smart_filters(articles)
     await _report(f"[3/4] Cleaned {len(articles)} articles ready.")
 
     result = PipelineResult(
@@ -292,3 +295,75 @@ async def _collect_from_sources(sources, total_count, cancel_event,
     # by date. After the article fetch later, the cleaning step preserves
     # order so the final merge is by date desc (or asc if chronological).
     return telegram_posts[:total_count], rss_articles[:total_count]
+
+
+def _apply_smart_filters(articles: list) -> list:
+    """Apply quality / topic / duplicate filters in that order.
+
+    Each filter is gated by its own setting so users can disable any of
+    them. All filters operate on already-cleaned article bodies + titles.
+    """
+    if not articles:
+        return articles
+
+    # 1) Quality: drop articles whose cleaned body is shorter than the
+    #    threshold. 0 disables.
+    threshold = int(get_setting("quality_threshold") or 0)
+    if threshold > 0:
+        before = len(articles)
+        articles = [a for a in articles if len(a.get("body") or "") >= threshold]
+        if len(articles) < before:
+            logger.info(
+                "[filter:quality] dropped %d/%d articles under %d chars",
+                before - len(articles), before, threshold,
+            )
+
+    # 2) Topics: keep articles whose title or body contains any keyword.
+    topics = [t.strip().lower() for t in (get_setting("topics") or []) if t.strip()]
+    if topics:
+        def _matches_topic(a):
+            hay = ((a.get("title") or "") + " " + (a.get("body") or "")[:500]).lower()
+            return any(t in hay for t in topics)
+        before = len(articles)
+        articles = [a for a in articles if _matches_topic(a)]
+        if len(articles) < before:
+            logger.info(
+                "[filter:topics] kept %d/%d articles matching %s",
+                len(articles), before, topics,
+            )
+
+    # 3) Duplicates: collapse near-duplicate titles. Threshold is 0..100
+    #    similarity; 100 effectively disables.
+    dup_threshold = int(get_setting("dup_threshold") or 100)
+    if 0 < dup_threshold < 100 and len(articles) > 1:
+        try:
+            from rapidfuzz import fuzz
+        except ImportError:
+            logger.warning("[filter:dup] rapidfuzz not installed; skipping")
+            return articles
+
+        kept: list[dict] = []
+        kept_titles: list[str] = []
+        for a in articles:
+            title = (a.get("title") or "").strip().lower()
+            if not title:
+                kept.append(a)
+                continue
+            is_dup = False
+            for t in kept_titles:
+                if fuzz.token_set_ratio(title, t) >= dup_threshold:
+                    is_dup = True
+                    break
+            if not is_dup:
+                kept.append(a)
+                kept_titles.append(title)
+
+        dropped = len(articles) - len(kept)
+        if dropped:
+            logger.info(
+                "[filter:dup] collapsed %d duplicate(s) at threshold=%d",
+                dropped, dup_threshold,
+            )
+        articles = kept
+
+    return articles

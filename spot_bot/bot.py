@@ -985,6 +985,87 @@ async def cmd_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# /quality, /topics, /dedup — smart filtering toggles (Phase 7)
+# ---------------------------------------------------------------------------
+
+async def cmd_quality(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/quality [N] — set min cleaned-body length. /quality 0 disables."""
+    args = context.args or []
+    lang = _get_lang()
+    if not args:
+        current = int(get_setting("quality_threshold") or 0)
+        if current <= 0:
+            await update.message.reply_text(t("quality_off", lang))
+        else:
+            await update.message.reply_text(t("quality_status", lang, n=current))
+        return
+    try:
+        n = int(args[0])
+    except ValueError:
+        await update.message.reply_text(t("quality_usage", lang))
+        return
+    if n < 0 or n > 10000:
+        await update.message.reply_text(t("quality_range", lang))
+        return
+    set_setting("quality_threshold", n)
+    if n == 0:
+        await update.message.reply_text(t("quality_set_off", lang))
+    else:
+        await update.message.reply_text(t("quality_set_on", lang, n=n))
+
+
+async def cmd_topics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/topics [keyword ...] — list, set, or clear (with `off`) topic filter."""
+    args = context.args or []
+    lang = _get_lang()
+    current = list(get_setting("topics") or [])
+    if not args:
+        if not current:
+            await update.message.reply_text(t("topics_off", lang))
+        else:
+            await update.message.reply_text(
+                t("topics_status", lang, list=", ".join(current))
+            )
+        return
+    if args[0].lower() in ("off", "clear", "none"):
+        set_setting("topics", [])
+        await update.message.reply_text(t("topics_set_off", lang))
+        return
+    # Replace topics with the given list
+    new_topics = [a.strip().lower() for a in args if a.strip()]
+    set_setting("topics", new_topics)
+    await update.message.reply_text(
+        t("topics_set_on", lang, list=", ".join(new_topics))
+    )
+
+
+async def cmd_dedup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/dedup [threshold] — title-similarity threshold (0-100). 100 disables."""
+    args = context.args or []
+    lang = _get_lang()
+    if not args:
+        current = int(get_setting("dup_threshold") or 100)
+        if current >= 100:
+            await update.message.reply_text(t("dedup_off", lang))
+        else:
+            await update.message.reply_text(t("dedup_status", lang, n=current))
+        return
+    try:
+        n = int(args[0])
+    except ValueError:
+        await update.message.reply_text(t("dedup_usage", lang))
+        return
+    if n < 0 or n > 100:
+        await update.message.reply_text(t("dedup_range", lang))
+        return
+    set_setting("dup_threshold", n)
+    if n >= 100:
+        await update.message.reply_text(t("dedup_set_off", lang))
+    else:
+        await update.message.reply_text(t("dedup_set_on", lang, n=n))
+
+
+# ---------------------------------------------------------------------------
 # /today, /yesterday, /thisweek, /since — date-based scrape shortcuts
 # ---------------------------------------------------------------------------
 
@@ -1907,6 +1988,9 @@ def create_app():
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("auto", cmd_auto))
     app.add_handler(CommandHandler("ads", cmd_ads))
+    app.add_handler(CommandHandler("quality", cmd_quality))
+    app.add_handler(CommandHandler("topics", cmd_topics))
+    app.add_handler(CommandHandler("dedup", cmd_dedup))
     app.add_handler(CommandHandler("today", cmd_today))
     app.add_handler(CommandHandler("yesterday", cmd_yesterday))
     app.add_handler(CommandHandler("thisweek", cmd_thisweek))

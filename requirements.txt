@@ -1,5 +1,6 @@
 httpx
 selectolax
+rapidfuzz
 beautifulsoup4
 lxml
 python-telegram-bot[job-queue]>=20.0

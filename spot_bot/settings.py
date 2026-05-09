@@ -33,6 +33,17 @@ _DEFAULTS = {
     # under a voice message). Shape: {"chat_id": int, "msg_id": int,
     # "marked_at": unix-epoch-int}. None when nothing marked yet.
     "resume_marker": None,
+    # Phase 7: smart filtering
+    # Min cleaned body length to keep an article. 0 disables.
+    "quality_threshold": 200,
+    # Title-similarity score (0-100). 100=disabled. Articles whose titles
+    # match an earlier article in the batch above this threshold are
+    # collapsed (only the first one is kept).
+    "dup_threshold": 85,
+    # Optional list of topic keywords. Empty list = topic filter disabled.
+    # When non-empty, articles must contain at least one keyword (case-
+    # insensitive substring against title + body head) to pass.
+    "topics": [],
 }
 
 # Cap on the in-memory reading log so user_settings.json doesn't grow forever.
