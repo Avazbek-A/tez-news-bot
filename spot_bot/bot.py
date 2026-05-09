@@ -139,6 +139,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     include_images = False
     combined_audio = False
     chronological = (get_setting("chronological_order") == "oldest_first")
+    translate_override = None  # set by 'translate=<lang>' flag
 
     # Special syntax: /scrape from "<title>" [count] [flags...]
     # We re-parse the raw message text with shlex so the quoted title stays
@@ -207,6 +208,12 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chronological = True
         elif arg.lower() in ("--newest-first", "newest-first", "newest"):
             chronological = False
+        elif arg.lower().startswith("translate=") or arg.lower().startswith("to="):
+            value = arg.split("=", 1)[1].strip().lower()
+            if value in _TRANSLATE_LANGS or value in ("off", "none"):
+                translate_override = (
+                    None if value in ("off", "none") else value
+                )
 
     voice = _get_voice()
     rate = _get_speed()
@@ -266,6 +273,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             rate=rate,
             lang=lang,
             chronological=chronological,
+            translate_to=translate_override,
         )
     )
 
@@ -281,7 +289,7 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                    include_audio=False, include_images=False,
                    send_as_file=True, combined_audio=False,
                    voice=None, rate=TTS_RATE, lang="en",
-                   chronological=False):
+                   chronological=False, translate_to=None):
     """Background task that runs the full pipeline + delivery."""
     result = None
 
@@ -301,6 +309,7 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
             chronological=chronological,
+            translate_to=translate_to,
         )
         if use_from_title:
             # Two-stage flow: resolve title at the bot layer, ask user to
@@ -1075,6 +1084,48 @@ async def cmd_voice_engine(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text(t("voice_engine_set_piper_no_model", lang))
     else:
         await update.message.reply_text(t("voice_engine_set_edge", lang))
+
+
+# ---------------------------------------------------------------------------
+# /translate — set article translation target language (Phase 13)
+# ---------------------------------------------------------------------------
+
+_TRANSLATE_LANGS = {"en", "ru", "uz", "de", "tr"}
+
+
+async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import os as _os
+    args = context.args or []
+    lang = _get_lang()
+    has_key = bool((_os.environ.get("GROQ_API_KEY") or "").strip())
+    current = get_setting("translate_to")
+
+    if not args:
+        if current and has_key:
+            await update.message.reply_text(
+                t("translate_status_on", lang, target=current)
+            )
+        elif current:
+            await update.message.reply_text(t("translate_no_key", lang))
+        else:
+            await update.message.reply_text(t("translate_status_off", lang))
+        return
+
+    choice = args[0].lower()
+    if choice in ("off", "none", "0", "no"):
+        set_setting("translate_to", None)
+        await update.message.reply_text(t("translate_set_off", lang))
+        return
+    if choice not in _TRANSLATE_LANGS:
+        await update.message.reply_text(t("translate_unknown", lang, choice=choice))
+        return
+    set_setting("translate_to", choice)
+    if has_key:
+        await update.message.reply_text(t("translate_set_on", lang, target=choice))
+    else:
+        await update.message.reply_text(
+            t("translate_set_on_no_key", lang, target=choice)
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -2260,6 +2311,7 @@ def create_app():
     app.add_handler(CommandHandler("auto", cmd_auto))
     app.add_handler(CommandHandler("ads", cmd_ads))
     app.add_handler(CommandHandler("summarize", cmd_summarize))
+    app.add_handler(CommandHandler("translate", cmd_translate))
     app.add_handler(CommandHandler("voice_engine", cmd_voice_engine))
     app.add_handler(CommandHandler("quality", cmd_quality))
     app.add_handler(CommandHandler("topics", cmd_topics))

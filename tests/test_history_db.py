@@ -104,3 +104,37 @@ def test_split_article_id():
     assert history_db._split_article_id("default/100") == ("default", 100)
     assert history_db._split_article_id("noslash") == ("noslash", None)
     assert history_db._split_article_id("") == ("unknown", None)
+
+
+def test_translation_cache_roundtrip(temp_db):
+    history_db.cache_translation(
+        "spotuz/100", "de",
+        title="Tashkent Metro öffnet neue Linie",
+        body="Eine neue U-Bahn-Linie wurde heute eröffnet.",
+    )
+    got = history_db.get_cached_translation("spotuz/100", "de")
+    assert got is not None
+    title, body = got
+    assert "Metro" in title
+    assert "U-Bahn" in body
+
+
+def test_translation_cache_separate_per_lang(temp_db):
+    history_db.cache_translation("spotuz/200", "de", "Titel-DE", "Körper-DE")
+    history_db.cache_translation("spotuz/200", "tr", "Başlık-TR", "Gövde-TR")
+    de = history_db.get_cached_translation("spotuz/200", "de")
+    tr = history_db.get_cached_translation("spotuz/200", "tr")
+    assert de == ("Titel-DE", "Körper-DE")
+    assert tr == ("Başlık-TR", "Gövde-TR")
+
+
+def test_translation_cache_upserts(temp_db):
+    history_db.cache_translation("spotuz/300", "de", "v1 title", "v1 body")
+    history_db.cache_translation("spotuz/300", "de", "v2 title", "v2 body")
+    got = history_db.get_cached_translation("spotuz/300", "de")
+    assert got == ("v2 title", "v2 body")
+
+
+def test_translation_cache_miss_returns_none(temp_db):
+    assert history_db.get_cached_translation("missing/article", "de") is None
+    assert history_db.get_cached_translation("", "de") is None

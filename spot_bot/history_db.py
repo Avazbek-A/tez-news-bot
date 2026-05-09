@@ -40,6 +40,16 @@ CREATE TABLE IF NOT EXISTS history (
 CREATE INDEX IF NOT EXISTS idx_post_id ON history(post_id);
 CREATE INDEX IF NOT EXISTS idx_date    ON history(date_iso);
 CREATE INDEX IF NOT EXISTS idx_source  ON history(source_id);
+
+-- Translation cache: one row per (article, target_lang) pair.
+CREATE TABLE IF NOT EXISTS translations (
+    article_id TEXT NOT NULL,
+    target_lang TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    body  TEXT NOT NULL,
+    cached_at INTEGER NOT NULL,
+    PRIMARY KEY (article_id, target_lang)
+);
 """
 
 
@@ -175,6 +185,56 @@ def get_cached_summary(article_id: str) -> Optional[tuple[str, str]]:
             conn.close()
     except sqlite3.Error as e:
         logger.warning("history_db get_cached_summary failed: %s", e)
+        return None
+
+
+def cache_translation(article_id: str, target_lang: str,
+                      title: str, body: str) -> None:
+    """Store a translation. Upserts on (article_id, target_lang)."""
+    if not article_id or not target_lang or not body:
+        return
+    try:
+        conn = _connect()
+        try:
+            with conn:
+                conn.execute(
+                    """
+                    INSERT INTO translations (
+                        article_id, target_lang, title, body, cached_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(article_id, target_lang) DO UPDATE SET
+                        title=excluded.title,
+                        body=excluded.body,
+                        cached_at=excluded.cached_at
+                    """,
+                    (article_id, target_lang, title or "", body, int(time.time())),
+                )
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        logger.warning("history_db cache_translation failed: %s", e)
+
+
+def get_cached_translation(article_id: str, target_lang: str):
+    """Return (title, body) tuple if cached for this language, else None."""
+    if not article_id or not target_lang:
+        return None
+    try:
+        conn = _connect()
+        try:
+            cur = conn.execute(
+                "SELECT title, body FROM translations "
+                "WHERE article_id = ? AND target_lang = ?",
+                (article_id, target_lang),
+            )
+            row = cur.fetchone()
+            if row:
+                return (row["title"] or "", row["body"])
+            return None
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        logger.warning("history_db get_cached_translation failed: %s", e)
         return None
 
 

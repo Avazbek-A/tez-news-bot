@@ -55,6 +55,10 @@ _DEFAULTS = {
     # config defaults from DEFAULT_VOICES_BY_LANG. Example:
     # {"de": "de-DE-KatjaNeural", "tr": "tr-TR-EmelNeural"}
     "voices_by_lang": {},
+    # Phase 13: target language for article translation. None = no
+    # translation (article delivered in source language). Set via
+    # /translate <lang> or per-scrape with translate=<lang>.
+    "translate_to": None,
 }
 
 # Cap on the in-memory reading log so user_settings.json doesn't grow forever.

@@ -67,6 +67,9 @@ async def send_articles_as_text(bot: Bot, chat_id: int, articles: list,
         title = article.get("title", "")
         body = article.get("body", "")
         date = article.get("date", "")
+        original_title = article.get("original_title", "")
+        original_body = article.get("original_body", "")
+        target_lang = article.get("target_lang", "")
 
         # Post ID
         post_id = ""
@@ -76,18 +79,41 @@ async def send_articles_as_text(bot: Bot, chat_id: int, articles: list,
 
         # Format the message
         header = ""
-        if title:
-            header = f"<b>{_escape_html(title)}</b>\n"
-        if date:
-            header += f"<i>{date}</i>\n"
-        if header:
-            header += "\n"
-
-        footer = ""
-        if post_id:
-            footer = f"\n\n<i>#{post_id}</i>"
-
-        full_text = header + _escape_html(body) + footer
+        # If translation happened, header shows the ORIGINAL title and date,
+        # then the original body, then a separator, then the translated
+        # title + body. The save/share buttons attach to the final chunk
+        # so they always appear at the bottom of the article message.
+        if original_body:
+            if original_title:
+                header = f"<b>{_escape_html(original_title)}</b>\n"
+            if date:
+                header += f"<i>{date}</i>\n"
+            if header:
+                header += "\n"
+            translated_section = (
+                "\n\n"
+                f"——— <i>Translation ({target_lang})</i> ———\n\n"
+                + (f"<b>{_escape_html(title)}</b>\n\n" if title else "")
+                + _escape_html(body)
+            )
+            footer = ""
+            if post_id:
+                footer = f"\n\n<i>#{post_id}</i>"
+            full_text = (
+                header + _escape_html(original_body)
+                + translated_section + footer
+            )
+        else:
+            if title:
+                header = f"<b>{_escape_html(title)}</b>\n"
+            if date:
+                header += f"<i>{date}</i>\n"
+            if header:
+                header += "\n"
+            footer = ""
+            if post_id:
+                footer = f"\n\n<i>#{post_id}</i>"
+            full_text = header + _escape_html(body) + footer
 
         # Build save + share buttons if we have a numeric post ID; attach
         # to the final chunk only (multi-chunk articles otherwise duplicate).
@@ -134,6 +160,10 @@ async def send_articles_as_file(bot: Bot, chat_id: int, articles: list,
         title = article.get("title", "")
         body = article.get("body", "")
         date = article.get("date", "")
+        # Originals are present when the pipeline translated this article
+        original_title = article.get("original_title", "")
+        original_body = article.get("original_body", "")
+        target_lang = article.get("target_lang", "")
 
         # Post ID
         post_id = ""
@@ -141,14 +171,31 @@ async def send_articles_as_file(bot: Bot, chat_id: int, articles: list,
         if "/" in raw_id:
             post_id = raw_id.split("/")[-1]
 
-        if title:
-            lines.append(title)
-        if date:
-            lines.append(f"Date: {date}")
-        if title or date:
+        # Section 1: original (when translation happened)
+        if original_body:
+            if original_title:
+                lines.append(original_title)
+            if date:
+                lines.append(f"Date: {date}")
+            if original_title or date:
+                lines.append("")
+            lines.append(original_body)
             lines.append("")
-        if body:
+            lines.append(f"——— Translation ({target_lang}) ———")
+            lines.append("")
+            if title:
+                lines.append(title)
             lines.append(body)
+        else:
+            if title:
+                lines.append(title)
+            if date:
+                lines.append(f"Date: {date}")
+            if title or date:
+                lines.append("")
+            if body:
+                lines.append(body)
+
         if post_id:
             lines.append(f"\n#{post_id}")
         lines.append("")

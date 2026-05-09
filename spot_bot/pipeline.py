@@ -12,6 +12,7 @@ from spot_bot.scrapers.rss_feed import fetch_rss_articles
 from spot_bot.settings import get_sources
 from spot_bot import history_db
 from spot_bot.summary import summarize as _summarize
+from spot_bot.translation import translate_article as _translate_article
 from spot_bot.scrapers.article_fetcher import fetch_articles
 from spot_bot.cleaners.text_cleaner import clean_batch
 from spot_bot.audio.tts_generator import generate_batch, cleanup_audio_files
@@ -48,7 +49,8 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
                        include_audio=False, include_images=False,
                        voice=DEFAULT_VOICE, rate=TTS_RATE,
                        channel_url=None, cancel_event=None,
-                       progress_callback=None, chronological=False):
+                       progress_callback=None, chronological=False,
+                       translate_to=None):
     """Run the full scrape -> fetch -> clean -> audio pipeline.
 
     Args:
@@ -204,6 +206,24 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
     # Smart filtering: quality, topic, duplicates
     articles = _apply_smart_filters(articles)
 
+    # Optional translation. When the user wants to listen to e.g. Russian
+    # spotuz news in German, we translate the article body+title here so
+    # the audio path produces a German voice and the .txt delivery has
+    # both the original and the translation.
+    effective_translate_to = (
+        translate_to
+        if translate_to is not None
+        else get_setting("translate_to")
+    )
+    if effective_translate_to and articles:
+        await _report(
+            f"[3/4] Translating to {effective_translate_to} (0/{len(articles)})..."
+        )
+        await _translate_articles(
+            articles, target_lang=effective_translate_to,
+            progress_callback=progress_callback,
+        )
+
     # Optional LLM summaries (Groq free tier). No-op when disabled or
     # when GROQ_API_KEY isn't set. Cache lookups skip the network round
     # trip on re-scrapes.
@@ -308,6 +328,70 @@ async def _collect_from_sources(sources, total_count, cancel_event,
     # by date. After the article fetch later, the cleaning step preserves
     # order so the final merge is by date desc (or asc if chronological).
     return telegram_posts[:total_count], rss_articles[:total_count]
+
+
+async def _translate_articles(articles: list, target_lang: str,
+                              progress_callback=None) -> None:
+    """For each article: look up cached translation; if absent, call Groq
+    to translate; mutate the article in place so the existing pipeline
+    sees translated title/body in `title`/`body` and originals saved
+    under `original_title`/`original_body`.
+
+    The TTS pipeline downstream auto-detects language from the new body
+    and routes to the appropriate voice. The .txt and inline delivery
+    layers check for `original_body` to render the dual-version output.
+    """
+    import time
+    last_report = 0.0
+    done = 0
+    total = len(articles)
+
+    async def _report(msg):
+        if progress_callback:
+            await progress_callback(msg)
+
+    for article in articles:
+        article_id = article.get("id") or ""
+        translated = None
+        if article_id:
+            cached = history_db.get_cached_translation(article_id, target_lang)
+            if cached:
+                translated_title, translated_body = cached
+                translated = {"title": translated_title, "body": translated_body}
+
+        if translated is None:
+            try:
+                translated = await _translate_article(article, target_lang)
+            except Exception as e:
+                logger.warning("[translate] error on %s: %s", article_id, e)
+                translated = None
+            if translated and article_id:
+                try:
+                    history_db.cache_translation(
+                        article_id, target_lang,
+                        translated.get("title", ""),
+                        translated.get("body", ""),
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "[translate] cache failed for %s: %s", article_id, e,
+                    )
+
+        if translated:
+            # Save originals so the delivery layer can show both.
+            article["original_title"] = article.get("title", "")
+            article["original_body"] = article.get("body", "")
+            article["target_lang"] = target_lang
+            article["title"] = translated.get("title") or article["original_title"]
+            article["body"] = translated.get("body") or article["original_body"]
+
+        done += 1
+        now = time.monotonic()
+        if now - last_report >= 2.0:
+            last_report = now
+            await _report(
+                f"[3/4] Translating to {target_lang} ({done}/{total})..."
+            )
 
 
 async def _add_llm_summaries(articles: list, lang: str,

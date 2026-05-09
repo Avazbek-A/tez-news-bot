@@ -2211,6 +2211,56 @@ _STRINGS = {
         "tr": 'Sonraki makale:',
     },
 
+    'translate_status_off': {
+        "en": "Article translation is OFF. /translate <lang> to enable (lang: en, ru, uz, de, tr).",
+        "ru": "Перевод статей ВЫКЛ. /translate <язык> чтобы включить (en/ru/uz/de/tr).",
+        "uz": "Maqola tarjimasi O'CHIQ. Yoqish: /translate <til> (en/ru/uz/de/tr).",
+        "de": "Artikel-Übersetzung AUS. /translate <Sprache> zum Einschalten (en/ru/uz/de/tr).",
+        "tr": "Makale çevirisi KAPALI. Açmak için /translate <dil> (en/ru/uz/de/tr).",
+    },
+    'translate_status_on': {
+        "en": "Article translation is ON. Articles are translated to {target} before TTS.",
+        "ru": "Перевод статей ВКЛ. Статьи переводятся на {target} перед озвучкой.",
+        "uz": "Maqola tarjimasi YOQ. Maqolalar TTS oldidan {target} tiliga tarjima qilinadi.",
+        "de": "Artikel-Übersetzung AN. Artikel werden vor TTS auf {target} übersetzt.",
+        "tr": "Makale çevirisi AÇIK. Makaleler TTS'ten önce {target} diline çevrilir.",
+    },
+    'translate_no_key': {
+        "en": "Translation is enabled but GROQ_API_KEY isn't set — articles will arrive untranslated.",
+        "ru": "Перевод включён, но GROQ_API_KEY не задан — статьи будут без перевода.",
+        "uz": "Tarjima yoqilgan, lekin GROQ_API_KEY yo'q — maqolalar tarjimasiz keladi.",
+        "de": "Übersetzung an, aber GROQ_API_KEY fehlt — Artikel kommen unübersetzt.",
+        "tr": "Çeviri açık ama GROQ_API_KEY yok — makaleler çevrilmeden gelir.",
+    },
+    'translate_set_on': {
+        "en": "✅ Articles will now be translated to {target} before TTS. Override per-scrape with translate=<lang>.",
+        "ru": "✅ Статьи будут переводиться на {target} перед озвучкой. Переопределить разово: translate=<lang>.",
+        "uz": "✅ Maqolalar TTS oldidan {target} tiliga tarjima qilinadi. Bir martalik bekor: translate=<lang>.",
+        "de": "✅ Artikel werden ab jetzt auf {target} übersetzt. Pro Scrape überschreiben: translate=<lang>.",
+        "tr": "✅ Makaleler artık {target} diline çevrilecek. Tek seferlik geçersiz kıl: translate=<lang>.",
+    },
+    'translate_set_on_no_key': {
+        "en": "✅ Set to {target} — but GROQ_API_KEY isn't set yet. Get a free key at console.groq.com.",
+        "ru": "✅ Установлено: {target} — но GROQ_API_KEY ещё не задан. Бесплатный ключ: console.groq.com.",
+        "uz": "✅ {target} ga o'rnatildi — lekin GROQ_API_KEY yo'q. Bepul kalit: console.groq.com.",
+        "de": "✅ Auf {target} gesetzt — aber GROQ_API_KEY fehlt noch. Kostenloser Schlüssel: console.groq.com.",
+        "tr": "✅ {target} olarak ayarlandı — ama GROQ_API_KEY yok. Ücretsiz: console.groq.com.",
+    },
+    'translate_set_off': {
+        "en": "✅ Article translation disabled.",
+        "ru": "✅ Перевод статей отключён.",
+        "uz": "✅ Maqola tarjimasi o'chirildi.",
+        "de": "✅ Artikel-Übersetzung deaktiviert.",
+        "tr": "✅ Makale çevirisi devre dışı.",
+    },
+    'translate_unknown': {
+        "en": "Unknown language '{choice}'. Use one of: en, ru, uz, de, tr, off.",
+        "ru": "Неизвестный язык '{choice}'. Допустимо: en, ru, uz, de, tr, off.",
+        "uz": "Noma'lum til '{choice}'. Mumkin: en, ru, uz, de, tr, off.",
+        "de": "Unbekannte Sprache '{choice}'. Verfügbar: en, ru, uz, de, tr, off.",
+        "tr": "Bilinmeyen dil '{choice}'. Kullanılabilir: en, ru, uz, de, tr, off.",
+    },
+
     'untitled': {
         "en": 'Untitled',
         "ru": 'Без названия',
