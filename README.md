@@ -170,6 +170,8 @@ docker run -e BOT_TOKEN=your_token_here tez-news-bot
 | `BOT_TOKEN` | yes | Telegram bot token from BotFather |
 | `SENTRY_DSN` | no | If set, errors are reported to Sentry. Free tier: 5k errors/month at sentry.io |
 | `HEARTBEAT_URL` | no | If set, the bot pings this URL every 60 seconds. Use with healthchecks.io / cronitor.io to get an alert when the bot dies. Works from any hosting (no inbound HTTP needed). |
+| `GROQ_API_KEY` | no | If set AND `/summarize on`, each article gets a 2-3 sentence LLM summary via Groq's free tier (open-source Llama models). Free key at console.groq.com. |
+| `GROQ_MODEL` | no | Override the Groq model. Default `llama-3.1-8b-instant`. |
 
 ## Dependencies
 

@@ -44,6 +44,10 @@ _DEFAULTS = {
     # When non-empty, articles must contain at least one keyword (case-
     # insensitive substring against title + body head) to pass.
     "topics": [],
+    # Phase 8: when True and GROQ_API_KEY is set, prepend a 2-3 sentence
+    # LLM summary to each article's body. Cached in history_db so
+    # re-scraping a known article skips the LLM call.
+    "enable_summaries": False,
 }
 
 # Cap on the in-memory reading log so user_settings.json doesn't grow forever.

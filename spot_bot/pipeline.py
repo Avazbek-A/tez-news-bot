@@ -10,6 +10,8 @@ from spot_bot.scrapers.telegram_channel import (
 )
 from spot_bot.scrapers.rss_feed import fetch_rss_articles
 from spot_bot.settings import get_sources
+from spot_bot import history_db
+from spot_bot.summary import summarize as _summarize
 from spot_bot.scrapers.article_fetcher import fetch_articles
 from spot_bot.cleaners.text_cleaner import clean_batch
 from spot_bot.audio.tts_generator import generate_batch, cleanup_audio_files
@@ -201,6 +203,17 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
 
     # Smart filtering: quality, topic, duplicates
     articles = _apply_smart_filters(articles)
+
+    # Optional LLM summaries (Groq free tier). No-op when disabled or
+    # when GROQ_API_KEY isn't set. Cache lookups skip the network round
+    # trip on re-scrapes.
+    if get_setting("enable_summaries") and articles:
+        await _report(f"[3/4] Generating summaries (0/{len(articles)})...")
+        await _add_llm_summaries(
+            articles, lang=get_setting("language") or "en",
+            progress_callback=progress_callback,
+        )
+
     await _report(f"[3/4] Cleaned {len(articles)} articles ready.")
 
     result = PipelineResult(
@@ -295,6 +308,53 @@ async def _collect_from_sources(sources, total_count, cancel_event,
     # by date. After the article fetch later, the cleaning step preserves
     # order so the final merge is by date desc (or asc if chronological).
     return telegram_posts[:total_count], rss_articles[:total_count]
+
+
+async def _add_llm_summaries(articles: list, lang: str,
+                             progress_callback=None) -> None:
+    """For each article: look up cached summary (history_db); if absent,
+    call the Groq summarizer; prepend the result to article['body'].
+    Mutates articles in place. Best-effort — failures are logged and
+    skipped, never break the pipeline.
+    """
+    import time
+    last_report = 0.0
+    done = 0
+    total = len(articles)
+
+    async def _report(msg):
+        if progress_callback:
+            await progress_callback(msg)
+
+    for article in articles:
+        article_id = article.get("id") or ""
+        summary = None
+        if article_id:
+            cached = history_db.get_cached_summary(article_id)
+            if cached:
+                summary, _ = cached
+
+        if summary is None:
+            try:
+                summary = await _summarize(article, lang=lang)
+            except Exception as e:
+                logger.warning("[summary] error on %s: %s", article_id, e)
+                summary = None
+            if summary and article_id:
+                try:
+                    history_db.cache_summary(article_id, summary, lang)
+                except Exception as e:
+                    logger.warning("[summary] cache failed for %s: %s",
+                                   article_id, e)
+
+        if summary:
+            article["body"] = f"📝 {summary}\n\n{article.get('body') or ''}"
+
+        done += 1
+        now = time.monotonic()
+        if now - last_report >= 2.0:
+            last_report = now
+            await _report(f"[3/4] Summaries ({done}/{total})...")
 
 
 def _apply_smart_filters(articles: list) -> list:

@@ -46,6 +46,7 @@ _STRINGS = {
             "/quality <chars> — Min article length (0 = off)\n"
             "/topics <kw...> | off — Filter by keywords\n"
             "/dedup <0-100> — Collapse near-duplicate titles\n"
+            "/summarize on|off — 2-3 sentence LLM summary per article (Groq)\n"
             "/channel — Show/change source channel\n"
             "/status — Show current settings\n\n"
             "Reading log:\n"
@@ -99,6 +100,7 @@ _STRINGS = {
             "/quality <число> — Минимальная длина статьи (0 = выкл.)\n"
             "/topics <слова...> | off — Фильтр по ключам\n"
             "/dedup <0-100> — Схлопывать похожие заголовки\n"
+            "/summarize on|off — 2-3 предложения LLM-резюме (Groq)\n"
             "/channel — Канал-источник\n"
             "/status — Текущие настройки\n\n"
             "История:\n"
@@ -152,6 +154,7 @@ _STRINGS = {
             "/quality <belgi> — Maqola minimal uzunligi (0 = o'chiq)\n"
             "/topics <so'zlar...> | off — Kalit so'zlar bo'yicha filtr\n"
             "/dedup <0-100> — O'xshash sarlavhalarni birlashtirish\n"
+            "/summarize on|off — Har maqolaga 2-3 jumlali xulosa (Groq)\n"
             "/channel — Manba kanali\n"
             "/status — Joriy sozlamalar\n\n"
             "O'qish tarixi:\n"
@@ -662,6 +665,43 @@ _STRINGS = {
     "dedup_set_on": {"en": "✅ Duplicate threshold set to {n}%.",
                      "ru": "✅ Порог дублей: {n}%.",
                      "uz": "✅ Takrorlar chegarasi: {n}%."},
+
+    # /summarize
+    "summarize_status_off": {
+        "en": "LLM summaries are OFF. /summarize on to enable.",
+        "ru": "Резюме (LLM) ВЫКЛ. /summarize on — включить.",
+        "uz": "LLM xulosalar O'CHIQ. Yoqish uchun: /summarize on.",
+    },
+    "summarize_status_on": {
+        "en": "LLM summaries are ON. Each article gets a 2-3 sentence summary on top.",
+        "ru": "Резюме ВКЛ. К каждой статье добавляется 2-3 предложения сверху.",
+        "uz": "LLM xulosalar YOQ. Har maqolaga 2-3 jumlali xulosa qo'shiladi.",
+    },
+    "summarize_status_no_key": {
+        "en": "Setting is ON but GROQ_API_KEY isn't set — summaries are silently skipped.",
+        "ru": "Настройка ВКЛ, но GROQ_API_KEY не задан — резюме не создаются.",
+        "uz": "Sozlama YOQ, lekin GROQ_API_KEY o'rnatilmagan — xulosalar tashlab yuboriladi.",
+    },
+    "summarize_set_on": {
+        "en": "✅ LLM summaries enabled.",
+        "ru": "✅ LLM-резюме включены.",
+        "uz": "✅ LLM xulosalar yoqildi.",
+    },
+    "summarize_set_on_no_key": {
+        "en": "✅ Enabled — but set GROQ_API_KEY in your env to actually get summaries. Free key at console.groq.com.",
+        "ru": "✅ Включено — но укажите GROQ_API_KEY в переменных окружения. Бесплатный ключ: console.groq.com.",
+        "uz": "✅ Yoqildi — lekin GROQ_API_KEY ni env da o'rnating. Bepul kalit: console.groq.com.",
+    },
+    "summarize_set_off": {
+        "en": "✅ LLM summaries disabled.",
+        "ru": "✅ LLM-резюме отключены.",
+        "uz": "✅ LLM xulosalar o'chirildi.",
+    },
+    "summarize_unknown": {
+        "en": "Unknown choice '{choice}'. Use /summarize on or /summarize off.",
+        "ru": "Непонятное значение '{choice}'. /summarize on или /summarize off.",
+        "uz": "Noma'lum '{choice}'. /summarize on yoki /summarize off.",
+    },
 
     # /auto cron-mode strings
     "auto_usage": {

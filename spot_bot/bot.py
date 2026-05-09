@@ -985,6 +985,44 @@ async def cmd_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ---------------------------------------------------------------------------
+# /summarize — toggle LLM summaries via Groq free tier (Phase 8)
+# ---------------------------------------------------------------------------
+
+async def cmd_summarize(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import os as _os
+    args = context.args or []
+    lang = _get_lang()
+    current = bool(get_setting("enable_summaries"))
+    has_key = bool((_os.environ.get("GROQ_API_KEY") or "").strip())
+
+    if not args:
+        if current:
+            await update.message.reply_text(
+                t("summarize_status_on" if has_key else "summarize_status_no_key", lang)
+            )
+        else:
+            await update.message.reply_text(t("summarize_status_off", lang))
+        return
+
+    choice = args[0].lower()
+    if choice in ("on", "1", "yes", "true"):
+        new_value = True
+    elif choice in ("off", "0", "no", "false"):
+        new_value = False
+    else:
+        await update.message.reply_text(t("summarize_unknown", lang, choice=choice))
+        return
+
+    set_setting("enable_summaries", new_value)
+    if new_value and not has_key:
+        await update.message.reply_text(t("summarize_set_on_no_key", lang))
+    elif new_value:
+        await update.message.reply_text(t("summarize_set_on", lang))
+    else:
+        await update.message.reply_text(t("summarize_set_off", lang))
+
+
+# ---------------------------------------------------------------------------
 # /quality, /topics, /dedup — smart filtering toggles (Phase 7)
 # ---------------------------------------------------------------------------
 
@@ -1988,6 +2026,7 @@ def create_app():
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("auto", cmd_auto))
     app.add_handler(CommandHandler("ads", cmd_ads))
+    app.add_handler(CommandHandler("summarize", cmd_summarize))
     app.add_handler(CommandHandler("quality", cmd_quality))
     app.add_handler(CommandHandler("topics", cmd_topics))
     app.add_handler(CommandHandler("dedup", cmd_dedup))
