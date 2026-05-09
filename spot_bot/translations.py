@@ -1436,19 +1436,19 @@ _STRINGS = {
     },
 
     'voice_engine_supertonic_on': {
-        "en": '🎤 Engine: Supertonic-3 (open-source ONNX, RU/EN/+28 languages). Uzbek articles route to Edge TTS automatically.',
-        "ru": '🎤 Движок: Supertonic-3 (open-source ONNX, RU/EN/+28). Узбекские статьи идут через Edge TTS.',
-        "uz": "🎤 Engine: Supertonic-3 (open-source ONNX, RU/EN/+28 til). O'zbek maqolalar avtomatik Edge TTS ga yo'naltiriladi.",
-        "de": '🎤 Engine: Supertonic-3 (Open Source ONNX, RU/EN/+28 Sprachen). Usbekische Artikel werden automatisch zu Edge TTS geleitet.',
-        "tr": "🎤 Motor: Supertonic-3 (açık kaynak ONNX, RU/EN/+28 dil). Özbek makaleler otomatik olarak Edge TTS'e yönlendirilir.",
+        "en": '🎤 Engine: Supertonic-3 (open-source ONNX, RU/EN/+28 languages). Uzbek articles route to Edge TTS automatically.\n\n⚠️ First scrape will download the model (~99 MB, ~1 min). Per-article synthesis is ~10-25 sec on CPU. Edge TTS remains the faster default.',
+        "ru": '🎤 Движок: Supertonic-3 (open-source ONNX, RU/EN/+28). Узбекские статьи идут через Edge TTS.\n\n⚠️ При первом запуске скачается модель (~99 МБ, ~1 мин). Синтез ~10-25 сек на статью (CPU). Edge TTS быстрее.',
+        "uz": "🎤 Engine: Supertonic-3 (open-source ONNX, RU/EN/+28 til). O'zbek maqolalar avtomatik Edge TTS ga yo'naltiriladi.\n\n⚠️ Birinchi marta model yuklanadi (~99 MB, ~1 daqiqa). Har bir maqola ~10-25 soniya (CPU). Edge TTS tezroq.",
+        "de": '🎤 Engine: Supertonic-3 (Open Source ONNX, RU/EN/+28 Sprachen). Usbekische Artikel werden automatisch zu Edge TTS geleitet.\n\n⚠️ Beim ersten Start wird das Modell geladen (~99 MB, ~1 Min). Synthese ~10-25 Sek pro Artikel (CPU). Edge TTS bleibt schneller.',
+        "tr": "🎤 Motor: Supertonic-3 (açık kaynak ONNX, RU/EN/+28 dil). Özbek makaleler otomatik olarak Edge TTS'e yönlendirilir.\n\n⚠️ İlk taramada model indirilir (~99 MB, ~1 dk). Makale başına sentez ~10-25 sn (CPU). Edge TTS daha hızlı kalır.",
     },
 
     'voice_engine_set_supertonic': {
-        "en": '✅ Voice engine: Supertonic-3 for RU/EN, Edge TTS auto-fallback for Uzbek.',
-        "ru": '✅ Движок: Supertonic-3 для RU/EN, Edge TTS для узбекского.',
-        "uz": "✅ Engine: RU/EN uchun Supertonic-3, o'zbek uchun Edge TTS.",
-        "de": '✅ Stimm-Engine: Supertonic-3 für RU/EN, automatischer Edge-Fallback für Usbekisch.',
-        "tr": '✅ Ses motoru: RU/EN için Supertonic-3, Özbekçe için otomatik Edge TTS.',
+        "en": '✅ Voice engine: Supertonic-3 for RU/EN, Edge TTS auto-fallback for Uzbek.\n\n⚠️ First scrape will download the model (~99 MB, ~1 min). Per-article synthesis is ~10-25 sec on Railway CPU. Edge TTS remains the faster default.',
+        "ru": '✅ Движок: Supertonic-3 для RU/EN, Edge TTS для узбекского.\n\n⚠️ При первом запуске скачается модель (~99 МБ, ~1 мин). Синтез ~10-25 сек на статью (CPU). Edge TTS быстрее.',
+        "uz": "✅ Engine: RU/EN uchun Supertonic-3, o'zbek uchun Edge TTS.\n\n⚠️ Birinchi marta model yuklanadi (~99 MB, ~1 daqiqa). Har bir maqola ~10-25 soniya (CPU). Edge TTS tezroq.",
+        "de": '✅ Stimm-Engine: Supertonic-3 für RU/EN, automatischer Edge-Fallback für Usbekisch.\n\n⚠️ Beim ersten Start wird das Modell geladen (~99 MB, ~1 Min). Synthese ~10-25 Sek pro Artikel (CPU). Edge TTS bleibt schneller.',
+        "tr": '✅ Ses motoru: RU/EN için Supertonic-3, Özbekçe için otomatik Edge TTS.\n\n⚠️ İlk taramada model indirilir (~99 MB, ~1 dk). Makale başına sentez ~10-25 sn (CPU). Edge TTS daha hızlı kalır.',
     },
 
     'voice_engine_set_edge': {

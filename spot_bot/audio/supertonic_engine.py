@@ -39,8 +39,15 @@ def supertonic_supports(lang: str) -> bool:
     return (lang or "").lower() in _SUPPORTED_LANGS
 
 
-async def _load_tts():
-    """Load the Supertonic TTS instance, caching across calls."""
+async def _load_tts(progress_callback=None):
+    """Load the Supertonic TTS instance, caching across calls.
+
+    On first run this triggers a ~99 MB HuggingFace download that takes
+    ~1 minute on a typical connection. To keep the user from staring at
+    a frozen status line, callers can pass an async `progress_callback`
+    that will be invoked with human-readable milestones immediately
+    before and after the load.
+    """
     global _tts_instance
     if _tts_instance is not None:
         return _tts_instance
@@ -48,13 +55,24 @@ async def _load_tts():
         if _tts_instance is not None:
             return _tts_instance
 
+        async def _emit(msg):
+            if progress_callback is None:
+                return
+            try:
+                await progress_callback(msg)
+            except Exception:
+                # Progress is best-effort; never let it break synthesis.
+                pass
+
         def _do_load():
             from supertonic import TTS
             return TTS(auto_download=True)
 
+        await _emit("Loading Supertonic model (first run, ~99 MB)...")
         try:
             _tts_instance = await asyncio.to_thread(_do_load)
             logger.info("[supertonic] model loaded")
+            await _emit("Supertonic model loaded.")
         except Exception as e:
             logger.warning("[supertonic] failed to load: %s", e)
             _tts_instance = None
@@ -98,19 +116,26 @@ async def _wav_to_mp3(wav_path: str, mp3_path: str,
     return os.path.exists(mp3_path) and os.path.getsize(mp3_path) > 0
 
 
+_SYNTH_TIMEOUT_SECONDS = 90
+
+
 async def generate_audio_supertonic(text: str, output_path: str,
                                     lang: str = "en",
-                                    speed_rate: str = "+0%") -> Optional[str]:
+                                    speed_rate: str = "+0%",
+                                    progress_callback=None) -> Optional[str]:
     """Synthesize `text` to MP3 at `output_path` via Supertonic.
     Returns output_path on success, or None on any failure (so the
     caller can fall back to Edge TTS).
+
+    `progress_callback`, if given, is awaited with human-readable status
+    updates around the (potentially slow) first-run model download.
     """
     if not text or not text.strip():
         return None
     if not supertonic_supports(lang):
         return None
 
-    tts = await _load_tts()
+    tts = await _load_tts(progress_callback=progress_callback)
     if tts is None:
         return None
 
@@ -124,7 +149,16 @@ async def generate_audio_supertonic(text: str, output_path: str,
         return wav
 
     try:
-        wav = await asyncio.to_thread(_do_synth)
+        wav = await asyncio.wait_for(
+            asyncio.to_thread(_do_synth),
+            timeout=_SYNTH_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        logger.warning(
+            "[supertonic] synthesis timed out after %ss on %d-char text",
+            _SYNTH_TIMEOUT_SECONDS, len(text),
+        )
+        return None
     except Exception as e:
         logger.warning("[supertonic] synthesis failed: %s", e)
         return None
