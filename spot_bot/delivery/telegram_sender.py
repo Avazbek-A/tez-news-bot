@@ -324,6 +324,66 @@ async def _send_one_photo(bot: Bot, chat_id: int, img: dict,
         return False
 
 
+async def _send_chunk_as_downloaded_group(
+    bot: Bot, chat_id: int, chunk: list, caption: str = "",
+) -> int:
+    """Download every URL in `chunk` locally and send the whole batch as
+    one media-group of InputFile entries — preserving the tight grid
+    layout. Returns the number of images sent. Returns 0 if every
+    download failed.
+
+    Used as the fallback when handing URLs to Telegram fails (telesco.pe
+    expiry, .webp URL rejection). Sending downloaded images one-at-a-time
+    via send_photo would scatter them as separate messages and break the
+    gallery layout, so we re-bundle into a single media_group.
+    """
+    import io
+
+    # Download all bytes in parallel — bounded by the chunk size (<=10).
+    downloads = await asyncio.gather(
+        *[_download_image(img.get("url") or "") for img in chunk],
+        return_exceptions=False,
+    )
+
+    media = []
+    for i, (img, data) in enumerate(zip(chunk, downloads)):
+        if not data:
+            continue
+        bio = io.BytesIO(data)
+        bio.name = "photo.jpg"  # PTB infers MIME from extension
+        if i == 0 and caption:
+            media.append(InputMediaPhoto(media=bio, caption=caption))
+        else:
+            media.append(InputMediaPhoto(media=bio))
+
+    if not media:
+        return 0
+
+    try:
+        await bot.send_media_group(chat_id=chat_id, media=media)
+        return len(media)
+    except Exception as e:
+        logger.warning(
+            "[album] downloaded media_group still failed (%d items): %s",
+            len(media), e,
+        )
+        # Last resort: send each downloaded image individually so the user
+        # gets at least the working ones (loses grid, but better than 0).
+        sent = 0
+        for m in media:
+            try:
+                # Reset BytesIO; PTB consumed it on the failed group send.
+                photo = m.media
+                if hasattr(photo, "seek"):
+                    photo.seek(0)
+                await bot.send_photo(chat_id=chat_id, photo=photo)
+                sent += 1
+                await asyncio.sleep(0.3)
+            except Exception as e2:
+                logger.warning("[album] last-resort send_photo failed: %s", e2)
+        return sent
+
+
 async def _send_image_album(bot: Bot, chat_id: int, image_dicts: list,
                             caption: str = ""):
     """Send images as a Telegram media-group album (compact grid).
@@ -334,9 +394,10 @@ async def _send_image_album(bot: Bot, chat_id: int, image_dicts: list,
 
     Failure recovery: media-group sends are all-or-nothing — if Telegram
     can't fetch any one URL the whole group fails. On group failure we
-    fall back to per-photo, and per-photo itself falls back to local
-    download + InputFile (handles telesco.pe URL expiry and webp URL
-    rejection).
+    download all URLs locally and resend the whole chunk as one
+    media-group of InputFile entries. This preserves the tight grid
+    layout (vs. the previous per-photo fallback, which scattered images
+    as individual messages).
 
     image_dicts: list of {"url": "...", "alt": "..."} dicts.
     Returns the number of images successfully sent.
@@ -359,11 +420,12 @@ async def _send_image_album(bot: Bot, chat_id: int, image_dicts: list,
     # Multi-image: chunk into media groups of <= 10
     for chunk_start in range(0, len(valid), _MEDIA_GROUP_MAX):
         chunk = valid[chunk_start: chunk_start + _MEDIA_GROUP_MAX]
+        # Caption goes on the first item of the FIRST chunk only.
+        chunk_cap = cap if chunk_start == 0 else ""
         media = []
         for i, img in enumerate(chunk):
-            # Caption only on the first item of the FIRST chunk
-            if chunk_start == 0 and i == 0 and cap:
-                media.append(InputMediaPhoto(media=img["url"], caption=cap))
+            if i == 0 and chunk_cap:
+                media.append(InputMediaPhoto(media=img["url"], caption=chunk_cap))
             else:
                 media.append(InputMediaPhoto(media=img["url"]))
         try:
@@ -372,16 +434,15 @@ async def _send_image_album(bot: Bot, chat_id: int, image_dicts: list,
             await asyncio.sleep(0.5)
         except Exception as e:
             logger.warning(
-                "[album] media_group send failed (%d items): %s — "
-                "falling back to per-photo with download retry",
+                "[album] URL media_group failed (%d items): %s — "
+                "downloading and retrying as one InputFile group",
                 len(chunk), e,
             )
-            # Per-photo fallback with download-retry. Slower but resilient
-            # to a single bad URL killing the whole album.
-            for img in chunk:
-                if await _send_one_photo(bot, chat_id, img):
-                    sent_total += 1
-                    await asyncio.sleep(0.3)
+            # Download whole chunk and resend as one group → keeps grid.
+            sent_total += await _send_chunk_as_downloaded_group(
+                bot, chat_id, chunk, caption=chunk_cap,
+            )
+            await asyncio.sleep(0.5)
     return sent_total
 
 

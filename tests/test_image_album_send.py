@@ -19,17 +19,30 @@ import spot_bot.delivery.telegram_sender as ts
 class _FakeBot:
     """Minimal Bot with the methods _send_image_album touches."""
 
-    def __init__(self, group_should_fail=False, url_should_fail=False):
+    def __init__(self, group_should_fail=False, url_should_fail=False,
+                 file_group_should_fail=False):
         self.group_should_fail = group_should_fail
         self.url_should_fail = url_should_fail
-        self.media_group_calls = 0
+        self.file_group_should_fail = file_group_should_fail
+        self.media_group_calls = 0          # all media_group calls
+        self.media_group_url_calls = 0      # group send with URL items
+        self.media_group_file_calls = 0     # group send with InputFile items
         self.photo_url_calls = 0
         self.photo_file_calls = 0
 
     async def send_media_group(self, chat_id, media):
         self.media_group_calls += 1
-        if self.group_should_fail:
-            raise Exception("URL fetch failed: 404")
+        # Detect whether this group is URL-based or file-based by
+        # inspecting the first item's media field type.
+        is_file = bool(media) and not isinstance(media[0].media, str)
+        if is_file:
+            self.media_group_file_calls += 1
+            if self.file_group_should_fail:
+                raise Exception("File group failed too")
+        else:
+            self.media_group_url_calls += 1
+            if self.group_should_fail:
+                raise Exception("URL fetch failed: 404")
         return True
 
     async def send_photo(self, chat_id, photo, caption=None, **kwargs):
@@ -57,52 +70,87 @@ async def test_album_group_success_no_fallback():
     assert bot.photo_file_calls == 0
 
 
-# ---------- Group fails → per-photo URL works ----------
+# ---------- Group with URLs fails → download all → resend as ONE group ----------
 
 @pytest.mark.asyncio
-async def test_album_group_fails_per_photo_url_succeeds():
-    bot = _FakeBot(group_should_fail=True, url_should_fail=False)
-    images = [{"url": f"https://example.com/{i}.jpg"} for i in range(3)]
-    sent = await ts._send_image_album(bot, 1, images)
-    assert sent == 3
-    assert bot.media_group_calls == 1
-    assert bot.photo_url_calls == 3   # one per image
-    assert bot.photo_file_calls == 0  # never needed download
-
-
-# ---------- Group fails AND per-URL fails → download fallback ----------
-
-@pytest.mark.asyncio
-async def test_album_group_and_url_fail_download_fallback(monkeypatch):
-    """Both group send and per-URL send fail → download bytes and upload.
-    This is the path that rescues telesco.pe expiry / webp rejection."""
-    bot = _FakeBot(group_should_fail=True, url_should_fail=True)
+async def test_album_url_group_fails_resends_as_file_group(monkeypatch):
+    """When URL-mode media_group fails, we must download every image and
+    resend as a SINGLE InputFile media_group — preserving the tight
+    gallery layout. Critical regression test for the gallery-format fix."""
+    bot = _FakeBot(group_should_fail=True)
 
     async def fake_download(url):
-        return b"\xff\xd8\xff\xe0fake_jpeg_bytes"  # JPEG magic + payload
+        return b"\xff\xd8\xff\xe0fake_jpeg"
+
+    monkeypatch.setattr(ts, "_download_image", fake_download)
+
+    images = [{"url": f"https://example.com/{i}.jpg"} for i in range(5)]
+    sent = await ts._send_image_album(bot, 1, images)
+    assert sent == 5
+    # Exactly two media_group calls: one URL attempt + one InputFile retry.
+    # Crucially, there must be NO per-photo send_photo calls (those would
+    # mean the gallery was scattered into individual messages).
+    assert bot.media_group_url_calls == 1
+    assert bot.media_group_file_calls == 1
+    assert bot.photo_url_calls == 0
+    assert bot.photo_file_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_album_url_group_fails_partial_downloads(monkeypatch):
+    """Some URLs download, others 404. The successful ones still ship
+    as ONE media_group (with fewer items)."""
+    bot = _FakeBot(group_should_fail=True)
+    counter = {"n": 0}
+
+    async def fake_download(url):
+        counter["n"] += 1
+        # Every other download fails
+        return b"\xff\xd8\xff\xe0jpeg" if counter["n"] % 2 == 0 else None
+
+    monkeypatch.setattr(ts, "_download_image", fake_download)
+
+    images = [{"url": f"https://example.com/{i}.jpg"} for i in range(4)]
+    sent = await ts._send_image_album(bot, 1, images)
+    # 2 succeeded downloads → still one tight media_group of 2
+    assert sent == 2
+    assert bot.media_group_file_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_album_all_downloads_fail(monkeypatch):
+    """Every download fails → no items to send → returns 0, no exception."""
+    bot = _FakeBot(group_should_fail=True)
+
+    async def fake_download(url):
+        return None
 
     monkeypatch.setattr(ts, "_download_image", fake_download)
 
     images = [{"url": f"https://example.com/{i}.jpg"} for i in range(3)]
-    sent = await ts._send_image_album(bot, 1, images)
-    assert sent == 3
-    assert bot.photo_url_calls == 3   # tried URL each time
-    assert bot.photo_file_calls == 3  # then downloaded each
-
-
-@pytest.mark.asyncio
-async def test_album_group_and_url_fail_download_also_fails(monkeypatch):
-    """All three send paths fail → image is dropped, but no exception."""
-    bot = _FakeBot(group_should_fail=True, url_should_fail=True)
-
-    async def fake_download(url):
-        return None  # download itself failed
-
-    monkeypatch.setattr(ts, "_download_image", fake_download)
-
-    images = [{"url": "https://example.com/dead.jpg"}]
     sent = await ts._send_image_album(bot, 1, images)
     assert sent == 0
+    # We attempted the URL group; no file group attempted because no bytes.
+    assert bot.media_group_url_calls == 1
+    assert bot.media_group_file_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_album_file_group_also_fails_per_photo_last_resort(monkeypatch):
+    """If even the InputFile media_group fails, fall back to per-photo
+    sends so at least the working ones land. Loses grid layout but
+    better than 0."""
+    bot = _FakeBot(group_should_fail=True, file_group_should_fail=True)
+
+    async def fake_download(url):
+        return b"\xff\xd8\xff\xe0jpeg"
+
+    monkeypatch.setattr(ts, "_download_image", fake_download)
+
+    images = [{"url": f"https://example.com/{i}.jpg"} for i in range(3)]
+    sent = await ts._send_image_album(bot, 1, images)
+    assert sent == 3
+    assert bot.photo_file_calls == 3
 
 
 # ---------- Single-image path uses fallback too ----------
