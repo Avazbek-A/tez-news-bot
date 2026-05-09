@@ -1498,8 +1498,36 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # /auto — scheduled auto-scrape
 # ---------------------------------------------------------------------------
 
+_WEEKDAY_NAMES = {
+    "mon": 0, "monday": 0,
+    "tue": 1, "tuesday": 1,
+    "wed": 2, "wednesday": 2,
+    "thu": 3, "thursday": 3,
+    "fri": 4, "friday": 4,
+    "sat": 5, "saturday": 5,
+    "sun": 6, "sunday": 6,
+}
+
+
+def _parse_hh_mm(text: str):
+    """Parse 'HH:MM' string to (hour, minute) ints, or raise ValueError."""
+    parts = text.split(":")
+    if len(parts) != 2:
+        raise ValueError(f"Expected HH:MM, got {text!r}")
+    h, m = int(parts[0]), int(parts[1])
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        raise ValueError(f"HH:MM out of range: {text!r}")
+    return h, m
+
+
 def _schedule_auto_scrape(app, config):
-    """Schedule or reschedule the auto-scrape repeating job."""
+    """Schedule or reschedule the auto-scrape job.
+
+    Supports two modes (selected via config['mode']):
+    - 'interval': run every N days (config['interval_days'])
+    - 'cron': run at a specific HH:MM on chosen weekdays
+              (config['schedule'] = {hour, minute, days})
+    """
     job_queue = app.job_queue
     if job_queue is None:
         logger.warning("job-queue extra not installed. Auto-scrape unavailable.")
@@ -1512,7 +1540,33 @@ def _schedule_auto_scrape(app, config):
     if not config or not config.get("enabled"):
         return
 
-    interval_seconds = config["interval_days"] * 86400
+    mode = config.get("mode", "interval")
+
+    if mode == "cron":
+        sched = config.get("schedule") or {}
+        hh = int(sched.get("hour", 8))
+        mm = int(sched.get("minute", 0))
+        days = tuple(sched.get("days") or range(7))
+        tz_offset = int(config.get("tz_offset_hours", _DEFAULT_TZ_OFFSET_HOURS))
+
+        from datetime import time as time_cls
+        tz = timezone(timedelta(hours=tz_offset))
+        run_time = time_cls(hour=hh, minute=mm, tzinfo=tz)
+        job_queue.run_daily(
+            callback=_auto_scrape_callback,
+            time=run_time,
+            days=days,
+            name="auto_scrape",
+            data=config,
+        )
+        logger.info(
+            "Auto-scrape scheduled cron: %02d:%02d UTC%+d on days=%s",
+            hh, mm, tz_offset, days,
+        )
+        return
+
+    # interval mode (back-compat)
+    interval_seconds = int(config.get("interval_days", 3)) * 86400
     job_queue.run_repeating(
         callback=_auto_scrape_callback,
         interval=interval_seconds,
@@ -1605,21 +1659,62 @@ async def cmd_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t("auto_disabled", lang))
         return
 
-    # /auto on [N] or /auto [count] [flags...]
+    # /auto <subcommand> ... where subcommand is:
+    #   daily HH:MM ...
+    #   weekdays HH:MM ...
+    #   weekly Mon HH:MM ...
+    #   every N ...      (N-day interval)
+    #   on [N] ...       (back-compat = `every N`)
     existing = get_setting("auto_scrape") or {}
-    interval_days = existing.get("interval_days", 3)
     count = existing.get("count", DEFAULT_AUTO_SCRAPE_COUNT)
     include_audio = existing.get("include_audio", False)
     combined_audio = existing.get("combined_audio", False)
     include_images = existing.get("include_images", False)
     send_as_file = existing.get("send_as_file", True)
+    tz_offset = existing.get("tz_offset_hours", _DEFAULT_TZ_OFFSET_HOURS)
 
     remaining_args = list(args)
-    if remaining_args[0].lower() == "on":
-        remaining_args.pop(0)
-        # Next number is interval in days
-        if remaining_args and remaining_args[0].isdigit():
+    sub = remaining_args.pop(0).lower()
+
+    mode = None
+    interval_days = None
+    schedule = None
+
+    try:
+        if sub == "daily":
+            hh, mm = _parse_hh_mm(remaining_args.pop(0))
+            mode = "cron"
+            schedule = {"hour": hh, "minute": mm, "days": list(range(7))}
+        elif sub == "weekdays":
+            hh, mm = _parse_hh_mm(remaining_args.pop(0))
+            mode = "cron"
+            schedule = {"hour": hh, "minute": mm, "days": [0, 1, 2, 3, 4]}
+        elif sub == "weekly":
+            day_name = remaining_args.pop(0).lower()
+            if day_name not in _WEEKDAY_NAMES:
+                raise ValueError(f"unknown weekday: {day_name}")
+            hh, mm = _parse_hh_mm(remaining_args.pop(0))
+            mode = "cron"
+            schedule = {
+                "hour": hh, "minute": mm,
+                "days": [_WEEKDAY_NAMES[day_name]],
+            }
+        elif sub == "every":
             interval_days = int(remaining_args.pop(0))
+            mode = "interval"
+        elif sub == "on":
+            # back-compat: /auto on [N] = /auto every N
+            mode = "interval"
+            if remaining_args and remaining_args[0].isdigit():
+                interval_days = int(remaining_args.pop(0))
+            else:
+                interval_days = existing.get("interval_days", 3)
+        else:
+            await update.message.reply_text(t("auto_usage", lang))
+            return
+    except (IndexError, ValueError) as e:
+        await update.message.reply_text(t("auto_bad_syntax", lang, err=str(e)))
+        return
 
     # Parse remaining as scrape options (count, flags)
     for arg in remaining_args:
@@ -1636,24 +1731,31 @@ async def cmd_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         elif arg.lower() in ("file", "txt"):
             send_as_file = True
 
-    # Validate interval
-    if interval_days < MIN_AUTO_INTERVAL_DAYS or interval_days > MAX_AUTO_INTERVAL_DAYS:
-        await update.message.reply_text(
-            t("auto_interval_invalid", lang,
-              min=MIN_AUTO_INTERVAL_DAYS, max=MAX_AUTO_INTERVAL_DAYS)
-        )
-        return
+    # Validate interval mode bounds
+    if mode == "interval":
+        if interval_days < MIN_AUTO_INTERVAL_DAYS or interval_days > MAX_AUTO_INTERVAL_DAYS:
+            await update.message.reply_text(
+                t("auto_interval_invalid", lang,
+                  min=MIN_AUTO_INTERVAL_DAYS, max=MAX_AUTO_INTERVAL_DAYS)
+            )
+            return
 
     config = {
         "enabled": True,
-        "interval_days": interval_days,
+        "mode": mode,
         "chat_id": update.effective_chat.id,
         "count": count,
         "include_audio": include_audio,
         "combined_audio": combined_audio,
         "include_images": include_images,
         "send_as_file": send_as_file,
+        "tz_offset_hours": tz_offset,
     }
+    if mode == "interval":
+        config["interval_days"] = interval_days
+    else:
+        config["schedule"] = schedule
+
     set_setting("auto_scrape", config)
     _schedule_auto_scrape(context.application, config)
 
@@ -1664,10 +1766,31 @@ async def cmd_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         flags.append("images")
     flag_str = (" + " + ", ".join(flags)) if flags else ""
 
-    await update.message.reply_text(
-        t("auto_enabled", lang,
-          days=interval_days, count=count, flags=flag_str)
-    )
+    if mode == "cron":
+        s = config["schedule"]
+        days_label = _format_days_label(s["days"], lang)
+        await update.message.reply_text(
+            t("auto_enabled_cron", lang,
+              days=days_label,
+              hour=s["hour"], minute=s["minute"],
+              count=count, flags=flag_str)
+        )
+    else:
+        await update.message.reply_text(
+            t("auto_enabled", lang,
+              days=interval_days, count=count, flags=flag_str)
+        )
+
+
+def _format_days_label(days, lang):
+    """Human-readable label for a list of weekday integers (0=Mon)."""
+    if sorted(days) == list(range(7)):
+        return t("days_every_day", lang)
+    if sorted(days) == [0, 1, 2, 3, 4]:
+        return t("days_weekdays", lang)
+    if len(days) == 1:
+        return t(f"day_{days[0]}", lang)
+    return ", ".join(t(f"day_{d}", lang) for d in sorted(days))
 
 
 async def _post_init(app: Application):

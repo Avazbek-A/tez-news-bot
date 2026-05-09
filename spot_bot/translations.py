@@ -30,9 +30,10 @@ _STRINGS = {
             "Example:\n"
             "  /scrape from \"Tashkent metro\" 10 audio combined\n\n"
             "Auto-scrape:\n"
-            "/auto — Show auto-scrape status\n"
-            "/auto on 3 — Enable every 3 days\n"
-            "/auto 50 audio combined — Set options\n"
+            "/auto daily 08:00 50 audio combined — Every day at 08:00\n"
+            "/auto weekdays 08:00 50 audio — Mon-Fri only\n"
+            "/auto weekly Mon 08:00 50 audio — Once a week\n"
+            "/auto every 3 50 audio combined — Every 3 days (interval)\n"
             "/auto off — Disable\n\n"
             "Control:\n"
             "/cancel — Stop a running job\n\n"
@@ -78,9 +79,10 @@ _STRINGS = {
             "Пример:\n"
             "  /scrape from \"Ташкентское метро\" 10 audio combined\n\n"
             "Авто-скрапинг:\n"
-            "/auto — Статус авто-скрапинга\n"
-            "/auto on 3 — Включить каждые 3 дня\n"
-            "/auto 50 audio combined — Настроить параметры\n"
+            "/auto daily 08:00 50 audio combined — Каждый день в 08:00\n"
+            "/auto weekdays 08:00 50 audio — Только Пн-Пт\n"
+            "/auto weekly Mon 08:00 50 audio — Раз в неделю\n"
+            "/auto every 3 50 audio combined — Каждые 3 дня (интервал)\n"
             "/auto off — Отключить\n\n"
             "Управление:\n"
             "/cancel — Остановить текущую задачу\n\n"
@@ -126,9 +128,10 @@ _STRINGS = {
             "Misol:\n"
             "  /scrape from \"Toshkent metro\" 10 audio combined\n\n"
             "Avto-skraping:\n"
-            "/auto — Avto-skraping holati\n"
-            "/auto on 3 — Har 3 kunda yoqish\n"
-            "/auto 50 audio combined — Sozlamalarni o'rnatish\n"
+            "/auto daily 08:00 50 audio combined — Har kuni 08:00 da\n"
+            "/auto weekdays 08:00 50 audio — Faqat Du-Ju\n"
+            "/auto weekly Mon 08:00 50 audio — Haftada bir marta\n"
+            "/auto every 3 50 audio combined — Har 3 kunda (interval)\n"
             "/auto off — O'chirish\n\n"
             "Boshqaruv:\n"
             "/cancel — Joriy vazifani to'xtatish\n\n"
@@ -575,6 +578,32 @@ _STRINGS = {
         "ru": "🔎 {n} совпадений для '{query}':",
         "uz": "🔎 '{query}' bo'yicha {n} ta moslik:",
     },
+
+    # /auto cron-mode strings
+    "auto_usage": {
+        "en": "Usage:\n  /auto daily HH:MM [count] [flags]\n  /auto weekdays HH:MM [count] [flags]\n  /auto weekly Mon HH:MM [count] [flags]\n  /auto every N [count] [flags]\n  /auto off",
+        "ru": "Использование:\n  /auto daily HH:MM [count] [flags]\n  /auto weekdays HH:MM [count] [flags]\n  /auto weekly Mon HH:MM [count] [flags]\n  /auto every N [count] [flags]\n  /auto off",
+        "uz": "Foydalanish:\n  /auto daily HH:MM [count] [flags]\n  /auto weekdays HH:MM [count] [flags]\n  /auto weekly Mon HH:MM [count] [flags]\n  /auto every N [count] [flags]\n  /auto off",
+    },
+    "auto_bad_syntax": {
+        "en": "Bad /auto syntax: {err}\nSee /auto on its own for usage.",
+        "ru": "Неверный синтаксис /auto: {err}\nЗапустите /auto без параметров для подсказки.",
+        "uz": "/auto sintaksisi noto'g'ri: {err}\nKo'rsatma uchun /auto ni parametrsiz yuboring.",
+    },
+    "auto_enabled_cron": {
+        "en": "✅ Auto-scrape: {days} at {hour:02d}:{minute:02d}, {count} articles{flags}",
+        "ru": "✅ Авто-сбор: {days} в {hour:02d}:{minute:02d}, {count} статей{flags}",
+        "uz": "✅ Avto-yig'ish: {days} {hour:02d}:{minute:02d} da, {count} ta maqola{flags}",
+    },
+    "days_every_day": {"en": "every day", "ru": "каждый день", "uz": "har kuni"},
+    "days_weekdays": {"en": "weekdays", "ru": "по будням", "uz": "ish kunlari"},
+    "day_0": {"en": "Mon", "ru": "Пн", "uz": "Du"},
+    "day_1": {"en": "Tue", "ru": "Вт", "uz": "Se"},
+    "day_2": {"en": "Wed", "ru": "Ср", "uz": "Ch"},
+    "day_3": {"en": "Thu", "ru": "Чт", "uz": "Pa"},
+    "day_4": {"en": "Fri", "ru": "Пт", "uz": "Ju"},
+    "day_5": {"en": "Sat", "ru": "Сб", "uz": "Sh"},
+    "day_6": {"en": "Sun", "ru": "Вс", "uz": "Ya"},
     "sending_combined": {
         "en": "Sending combined audio...",
         "ru": "Отправка общего аудио...",
