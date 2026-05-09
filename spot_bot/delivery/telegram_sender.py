@@ -164,9 +164,18 @@ async def send_voice_messages(bot: Bot, chat_id: int, results: list):
     Returns:
         Number of voice messages successfully sent.
     """
-    if not ffmpeg_available():
-        print("ffmpeg not on PATH — cannot send voice messages.")
-        return 0
+    has_ffmpeg = ffmpeg_available()
+    print(
+        f"[voice] entering send_voice_messages, "
+        f"n_results={len(results)}, ffmpeg={has_ffmpeg}",
+        flush=True,
+    )
+    if not has_ffmpeg:
+        print(
+            "[voice] ffmpeg not on PATH — falling back to music-track audio "
+            "(no mobile speed control)."
+        )
+        return await _send_audio_fallback(bot, chat_id, results)
 
     sent = 0
     for article, mp3_path in results:
@@ -241,9 +250,18 @@ async def send_combined_voice(bot: Bot, chat_id: int, results: list,
     Returns:
         Number of underlying article-mp3s successfully delivered.
     """
-    if not ffmpeg_available():
-        print("ffmpeg not on PATH — cannot send combined voice.")
-        return 0
+    has_ffmpeg = ffmpeg_available()
+    print(
+        f"[voice] entering send_combined_voice, "
+        f"n_results={len(results)}, ffmpeg={has_ffmpeg}",
+        flush=True,
+    )
+    if not has_ffmpeg:
+        print(
+            "[voice] ffmpeg not on PATH — falling back to per-article "
+            "music-track audio for combined mode."
+        )
+        return await _send_audio_fallback(bot, chat_id, results)
 
     async def _report(msg):
         if status_callback:
@@ -374,6 +392,36 @@ async def _send_voice_split(bot, chat_id, ogg_path, article, total_duration):
             os.rmdir(chunk_dir)
         except OSError:
             pass
+
+    return sent
+
+
+async def _send_audio_fallback(bot: Bot, chat_id: int, results: list):
+    """Fallback when ffmpeg isn't available: send each article's MP3 as a
+    Telegram music track (sendAudio). No mobile speed control, but better
+    than silent zero-audio. Mirrors the previous send_audio_files behavior.
+    """
+    sent = 0
+    for article, audio_path in results:
+        if not audio_path or not os.path.exists(audio_path):
+            continue
+
+        title = article.get("title", "News")
+        if not title:
+            title = (article.get("body", "") or "")[:60] + "..."
+
+        try:
+            with open(audio_path, "rb") as audio_file:
+                await bot.send_audio(
+                    chat_id=chat_id,
+                    audio=audio_file,
+                    title=title[:64],
+                    performer="Spot News",
+                )
+            sent += 1
+            await asyncio.sleep(0.5)
+        except Exception as e:
+            print(f"[voice fallback] error sending audio: {e}")
 
     return sent
 

@@ -4,9 +4,11 @@ WORKDIR /app
 
 # ffmpeg is needed to convert TTS mp3 output into Opus/OGG so audio can
 # be sent as Telegram voice messages (which support mobile speed control).
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    apt-get update -o Acquire::Retries=3; \
+    apt-get install -y --no-install-recommends ffmpeg; \
+    rm -rf /var/lib/apt/lists/*; \
+    ffmpeg -version
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt \

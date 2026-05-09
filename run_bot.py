@@ -1,8 +1,19 @@
 #!/usr/bin/env python3
 """Entry point for the Spot News Telegram Bot."""
 
+import time
+
+from telegram.error import Conflict
+
 from spot_bot.bot import create_app
 from spot_bot.config import BOT_TOKEN
+
+
+# How many times to retry app.run_polling() if Telegram returns a Conflict
+# (another instance is still polling). Five seconds between attempts gives
+# Railway's rolling-restart enough time to drain the previous container.
+_STARTUP_MAX_ATTEMPTS = 6
+_STARTUP_RETRY_SECONDS = 5
 
 
 def main():
@@ -14,7 +25,29 @@ def main():
 
     print("Starting Spot News Bot...")
     app = create_app()
-    app.run_polling()
+
+    # If another bot instance is still finishing teardown when we start
+    # (e.g. during a Railway rolling-restart), Telegram may reject our first
+    # getUpdates with Conflict. Retry briefly so the new container survives
+    # its own birth instead of crashing and triggering a rollback.
+    for attempt in range(1, _STARTUP_MAX_ATTEMPTS + 1):
+        try:
+            app.run_polling()
+            return
+        except Conflict:
+            if attempt >= _STARTUP_MAX_ATTEMPTS:
+                print(
+                    f"Persistent getUpdates Conflict after "
+                    f"{_STARTUP_MAX_ATTEMPTS} attempts. Another instance "
+                    f"appears to be holding the long-poll. Giving up."
+                )
+                raise
+            print(
+                f"Startup Conflict (attempt {attempt}/"
+                f"{_STARTUP_MAX_ATTEMPTS}); retrying in "
+                f"{_STARTUP_RETRY_SECONDS}s..."
+            )
+            time.sleep(_STARTUP_RETRY_SECONDS)
 
 
 if __name__ == "__main__":
