@@ -1,6 +1,7 @@
 import asyncio
 import os
 import tempfile
+import httpx
 from telegram import (
     Bot,
     InlineKeyboardButton,
@@ -8,6 +9,21 @@ from telegram import (
     InputMediaPhoto,
 )
 from telegram.constants import ParseMode
+
+# When Telegram can't fetch an image URL itself (telesco.pe URLs expire,
+# spot.uz .webp can be rejected by the URL-fetch path), we download the
+# bytes locally and retry as an InputFile. 8 MB cap keeps us under
+# Telegram's 10 MB per-photo limit with headroom for the multipart
+# encoding overhead.
+_PHOTO_DOWNLOAD_CAP_BYTES = 8 * 1024 * 1024
+_PHOTO_DOWNLOAD_TIMEOUT = 12.0
+_PHOTO_DOWNLOAD_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+    ),
+    "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+}
 
 # Telegram media-group cap: 10 items per album.
 _MEDIA_GROUP_MAX = 10
@@ -223,6 +239,76 @@ async def send_articles_as_file(bot: Bot, chat_id: int, articles: list,
         os.unlink(tmp.name)
 
 
+async def _download_image(url: str):
+    """Fetch an image URL and return its bytes, or None on any failure.
+
+    Used as a fallback when Telegram can't fetch a URL itself (telesco.pe
+    URLs expire within minutes, and Telegram's URL-fetch path sometimes
+    rejects .webp). Capped at _PHOTO_DOWNLOAD_CAP_BYTES so a runaway
+    download can't stall the batch.
+    """
+    if not url:
+        return None
+    try:
+        async with httpx.AsyncClient(
+            timeout=_PHOTO_DOWNLOAD_TIMEOUT,
+            follow_redirects=True,
+            headers=_PHOTO_DOWNLOAD_HEADERS,
+        ) as client:
+            r = await client.get(url)
+            if r.status_code != 200:
+                logger.info(
+                    "[album] download HTTP %d for %s", r.status_code, url[:80]
+                )
+                return None
+            data = r.content
+            if not data:
+                return None
+            if len(data) > _PHOTO_DOWNLOAD_CAP_BYTES:
+                logger.info(
+                    "[album] download too large (%d bytes) for %s",
+                    len(data), url[:80],
+                )
+                return None
+            return data
+    except Exception as e:
+        logger.info("[album] download failed for %s: %s", url[:80], e)
+        return None
+
+
+async def _send_one_photo(bot: Bot, chat_id: int, img: dict,
+                          caption: str = "") -> bool:
+    """Send a single image with URL → InputFile fallback.
+
+    Try once with the URL (cheap path; Telegram fetches it). On failure,
+    download the bytes locally and retry as an InputFile. Returns True on
+    eventual success.
+    """
+    url = img.get("url") or ""
+    cap = caption or None
+    # First try: hand the URL to Telegram.
+    try:
+        await bot.send_photo(chat_id=chat_id, photo=url, caption=cap)
+        return True
+    except Exception as e:
+        logger.info("[album] URL send_photo failed (%s); will retry via download", e)
+
+    # Second try: download locally, send as InputFile.
+    data = await _download_image(url)
+    if not data:
+        return False
+    try:
+        # Wrap in BytesIO so PTB treats it as an in-memory file upload.
+        import io
+        bio = io.BytesIO(data)
+        bio.name = "photo.jpg"  # PTB infers MIME from extension
+        await bot.send_photo(chat_id=chat_id, photo=bio, caption=cap)
+        return True
+    except Exception as e:
+        logger.warning("[album] InputFile send_photo failed: %s", e)
+        return False
+
+
 async def _send_image_album(bot: Bot, chat_id: int, image_dicts: list,
                             caption: str = ""):
     """Send images as a Telegram media-group album (compact grid).
@@ -230,6 +316,12 @@ async def _send_image_album(bot: Bot, chat_id: int, image_dicts: list,
     Telegram limits a media group to 10 items; we chunk if there are more.
     For a single image we use send_photo. Caption (if any) is attached to
     the first item of each group; subsequent items go uncaptioned.
+
+    Failure recovery: media-group sends are all-or-nothing — if Telegram
+    can't fetch any one URL the whole group fails. On group failure we
+    fall back to per-photo, and per-photo itself falls back to local
+    download + InputFile (handles telesco.pe URL expiry and webp URL
+    rejection).
 
     image_dicts: list of {"url": "...", "alt": "..."} dicts.
     Returns the number of images successfully sent.
@@ -245,16 +337,9 @@ async def _send_image_album(bot: Bot, chat_id: int, image_dicts: list,
     # Single-image fast path
     if len(valid) == 1:
         img = valid[0]
-        try:
-            await bot.send_photo(
-                chat_id=chat_id,
-                photo=img["url"],
-                caption=cap or (img.get("alt") or "")[:_MEDIA_CAPTION_MAX] or None,
-            )
-            return 1
-        except Exception as e:
-            logger.warning(f"[album] single-photo send failed: {e}")
-            return 0
+        single_cap = cap or (img.get("alt") or "")[:_MEDIA_CAPTION_MAX] or ""
+        ok = await _send_one_photo(bot, chat_id, img, caption=single_cap)
+        return 1 if ok else 0
 
     # Multi-image: chunk into media groups of <= 10
     for chunk_start in range(0, len(valid), _MEDIA_GROUP_MAX):
@@ -271,16 +356,17 @@ async def _send_image_album(bot: Bot, chat_id: int, image_dicts: list,
             sent_total += len(chunk)
             await asyncio.sleep(0.5)
         except Exception as e:
-            logger.warning(f"[album] media_group send failed ({len(chunk)} items): {e}")
-            # Best-effort fallback: try each photo individually so at
-            # least the working URLs deliver.
+            logger.warning(
+                "[album] media_group send failed (%d items): %s — "
+                "falling back to per-photo with download retry",
+                len(chunk), e,
+            )
+            # Per-photo fallback with download-retry. Slower but resilient
+            # to a single bad URL killing the whole album.
             for img in chunk:
-                try:
-                    await bot.send_photo(chat_id=chat_id, photo=img["url"])
+                if await _send_one_photo(bot, chat_id, img):
                     sent_total += 1
                     await asyncio.sleep(0.3)
-                except Exception as e2:
-                    logger.warning(f"[album] fallback send_photo failed: {e2}")
     return sent_total
 
 
