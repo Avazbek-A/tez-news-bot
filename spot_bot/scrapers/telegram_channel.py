@@ -1,13 +1,55 @@
+"""Telegram public-channel scraper using httpx + selectolax.
+
+Replaces the previous Playwright-based scraper. The `t.me/s/<channel>`
+URL is server-rendered: each request returns ~20 posts as HTML, and
+`?before=<post_id>` jumps to a specific point in the timeline. So we
+don't need a real browser — just paginated HTTP requests.
+
+Public API preserved (same function names + signatures) so callers in
+pipeline.py and bot.py don't change:
+- scrape_latest(count, channel_url, ...)
+- scrape_range(start_offset, end_offset, channel_url, ...)
+- scrape_by_post_ids(start_id, end_id, channel_url, ...)
+- scrape_forward_from(anchor_id, count, channel_url, ...)
+- find_post_id_by_title(title_query, channel_url, ...)
+"""
+
+from __future__ import annotations
+
 import asyncio
+import logging
 import re
 from datetime import datetime, timedelta
 from html import unescape
-from playwright.async_api import async_playwright
+from typing import Optional
+
+import httpx
+from selectolax.parser import HTMLParser
+
 from spot_bot.config import CHANNEL_URL
 
-import logging
 logger = logging.getLogger(__name__)
 
+
+# Each t.me/s/<channel>?before=N page returns ~20 posts. We don't scroll
+# any more — just walk back via successive ?before= calls.
+_POSTS_PER_PAGE_HINT = 20
+
+# Conservative HTTP defaults.
+_HTTP_TIMEOUT_SECONDS = 20
+_HTTP_RETRIES = 2
+_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+)
+
+# Hard cap on total pages walked in any single scrape, to bound runtime.
+_MAX_PAGES_PER_SCRAPE = 200
+
+
+# ---------------------------------------------------------------------------
+# Title-match helpers (used by /scrape from "<title>" mode). Logic unchanged.
+# ---------------------------------------------------------------------------
 
 _TAG_RE = re.compile(r"<[^>]+>")
 _WS_RE = re.compile(r"\s+")
@@ -26,12 +68,7 @@ def _normalize_for_match(text):
 
 
 def _post_match_text(post_data):
-    """Build a single normalized string from post HTML for substring matching.
-
-    The Telegram channel post text usually starts with the article headline
-    or a short summary, so matching against the full post body covers both
-    title and lead paragraphs.
-    """
+    """Build a single normalized string from post HTML for substring matching."""
     return _normalize_for_match(post_data.get("text_html", ""))
 
 
@@ -44,30 +81,24 @@ def _post_first_line(post_data):
     return plain[:120] + ("…" if len(plain) > 120 else "")
 
 
-def _parse_date(date_str):
-    """Parse Telegram date strings into date objects.
+# ---------------------------------------------------------------------------
+# Date parsing (unchanged)
+# ---------------------------------------------------------------------------
 
-    Handles: ISO datetime attrs, "Jan 17, 2026", "Jan 17", "14:30",
-    "today at ...", "yesterday at ...".
-    """
+def _parse_date(date_str):
+    """Parse Telegram date strings into date objects."""
     today = datetime.now().date()
     try:
-        date_str = date_str.lower().strip()
-
+        date_str = (date_str or "").lower().strip()
         if "today" in date_str:
             return today
         if "yesterday" in date_str:
             return today - timedelta(days=1)
-
         date_text = date_str.split(" at ")[0]
-
-        # "Jan 17, 2026"
         try:
             return datetime.strptime(date_text, "%b %d, %Y").date()
         except ValueError:
             pass
-
-        # "Jan 17" (no year)
         try:
             dt = datetime.strptime(date_text, "%b %d").date()
             dt = dt.replace(year=today.year)
@@ -76,13 +107,10 @@ def _parse_date(date_str):
             return dt
         except ValueError:
             pass
-
-        # Just time "14:30" -> today
         if ":" in date_text and len(date_text) < 6:
             return today
-
     except Exception as e:
-        logger.warning(f"Error parsing date '{date_str}': {e}")
+        logger.warning("Error parsing date %r: %s", date_str, e)
     return None
 
 
@@ -103,60 +131,84 @@ def _post_sort_key(post):
         return 0
 
 
-async def _extract_posts_from_page(page, processed_ids):
-    """Extract all new posts from the currently loaded page.
+# ---------------------------------------------------------------------------
+# HTTP fetch + HTML parsing
+# ---------------------------------------------------------------------------
 
-    Returns list of (post_data_dict, numeric_id) tuples for posts not in
-    processed_ids. Updates processed_ids in place.
+async def _fetch_page(client: httpx.AsyncClient, url: str) -> Optional[str]:
+    """GET `url`, return HTML body or None on failure. Retries transient errors."""
+    last_exc: Optional[Exception] = None
+    for attempt in range(_HTTP_RETRIES + 1):
+        try:
+            resp = await client.get(url)
+            if resp.status_code == 200:
+                return resp.text
+            logger.warning(
+                "Channel page returned HTTP %d for %s",
+                resp.status_code, url,
+            )
+            return None
+        except (httpx.TimeoutException, httpx.NetworkError) as e:
+            last_exc = e
+            if attempt < _HTTP_RETRIES:
+                await asyncio.sleep(0.5 * (attempt + 1))
+                continue
+    if last_exc is not None:
+        logger.warning("Channel fetch gave up on %s: %s", url, last_exc)
+    return None
+
+
+def _extract_posts_from_html(html: str, processed_ids: set):
+    """Parse an HTML page and return new (post_data, numeric_id) tuples.
+
+    Mutates `processed_ids` in place — adds every post we touched (including
+    ones we couldn't fully parse) so we don't loop on them.
     """
-    messages = await page.locator(".tgme_widget_message").all()
-    if not messages:
+    if not html:
         return []
 
+    tree = HTMLParser(html)
+    messages = tree.css(".tgme_widget_message")
     results = []
 
     for msg in messages:
         try:
-            post_id = await msg.get_attribute("data-post")
+            post_id = msg.attributes.get("data-post")
             if not post_id or post_id in processed_ids:
                 continue
 
             # Date
             date_obj = None
-            date_elem = msg.locator(".tgme_widget_message_date time")
-            if await date_elem.count() > 0:
-                datetime_attr = await date_elem.get_attribute("datetime")
+            time_el = msg.css_first(".tgme_widget_message_date time")
+            if time_el is not None:
+                datetime_attr = time_el.attributes.get("datetime")
                 if datetime_attr:
-                    date_obj = datetime.fromisoformat(datetime_attr).date()
-                else:
-                    date_text = await msg.locator(
-                        ".tgme_widget_message_date"
-                    ).text_content()
-                    date_obj = _parse_date(date_text)
-            else:
-                date_link = msg.locator(".tgme_widget_message_date")
-                if await date_link.count() > 0:
-                    date_text = await date_link.text_content()
+                    try:
+                        date_obj = datetime.fromisoformat(datetime_attr).date()
+                    except ValueError:
+                        date_obj = None
+                if date_obj is None:
+                    date_text = time_el.text(strip=True) or ""
                     date_obj = _parse_date(date_text)
 
-            if not date_obj:
+            if date_obj is None:
+                # Fall back to any nearby date container
+                date_link = msg.css_first(".tgme_widget_message_date")
+                if date_link is not None:
+                    date_obj = _parse_date(date_link.text(strip=True) or "")
+
+            if date_obj is None:
+                processed_ids.add(post_id)
                 continue
 
             # Content
+            text_el = msg.css_first(".tgme_widget_message_text.js-message_text")
             text_content = ""
-            text_locator = msg.locator(
-                ".tgme_widget_message_text.js-message_text"
-            )
-            if await text_locator.count() > 0:
-                text_content = await text_locator.inner_html()
-
-            # Links
-            links = []
-            if await text_locator.count() > 0:
-                a_tags = text_locator.locator("a")
-                a_count = await a_tags.count()
-                for i in range(a_count):
-                    href = await a_tags.nth(i).get_attribute("href")
+            links: list[str] = []
+            if text_el is not None:
+                text_content = text_el.html or ""
+                for a in text_el.css("a"):
+                    href = a.attributes.get("href")
                     if href:
                         links.append(href)
 
@@ -169,100 +221,88 @@ async def _extract_posts_from_page(page, processed_ids):
                 "links": links,
                 "has_spot_link": has_spot_link,
             }
-
             processed_ids.add(post_id)
-            numeric_id = _get_numeric_id(post_id)
-            results.append((post_data, numeric_id))
-
+            results.append((post_data, _get_numeric_id(post_id)))
         except Exception as e:
-            logger.warning(f"Error processing message: {e}")
+            logger.warning("Error processing message: %s", e)
+
     return results
 
 
-async def _get_latest_post_id(page):
-    """Get the numeric ID of the newest post on the page."""
-    messages = await page.locator(".tgme_widget_message").all()
+def _latest_post_id_from_html(html: str) -> Optional[int]:
+    """Return the numeric ID of the newest post on the page, or None."""
+    if not html:
+        return None
+    tree = HTMLParser(html)
+    messages = tree.css(".tgme_widget_message")
     if not messages:
         return None
+    last = messages[-1]  # newest at the bottom in t.me/s/ pages
+    return _get_numeric_id(last.attributes.get("data-post") or "")
 
-    # Last message in DOM is the newest
-    last_msg = messages[-1]
-    post_id = await last_msg.get_attribute("data-post")
-    return _get_numeric_id(post_id)
 
+def _make_client() -> httpx.AsyncClient:
+    return httpx.AsyncClient(
+        timeout=_HTTP_TIMEOUT_SECONDS,
+        follow_redirects=True,
+        headers={"User-Agent": _USER_AGENT},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Public scraper API
+# ---------------------------------------------------------------------------
 
 async def scrape_latest(count, channel_url=CHANNEL_URL, cancel_event=None,
                         progress_callback=None, chronological=False):
-    """Scrape the latest `count` posts from a Telegram channel.
+    """Scrape the latest `count` posts from a Telegram channel."""
 
-    Args:
-        count: Number of posts to collect.
-        channel_url: Public Telegram channel URL (t.me/s/...).
-        cancel_event: asyncio.Event to signal cancellation.
-        progress_callback: Optional async callable(str) for status updates.
-
-    Returns:
-        List of dicts with keys: id, date, text_html, links, has_spot_link.
-        Ordered newest-first.
-    """
     async def _report(msg):
         if progress_callback:
             await progress_callback(msg)
 
-    captured_posts = []
-    processed_ids = set()
+    captured_posts: list[dict] = []
+    processed_ids: set[str] = set()
+    pages_walked = 0
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        try:
-            context = await browser.new_context()
-            page = await context.new_page()
+    async with _make_client() as client:
+        await _report(f"Opening {channel_url}...")
+        html = await _fetch_page(client, channel_url)
+        if html is None:
+            return []
 
-            await _report(f"Opening {channel_url}...")
-            await page.goto(channel_url)
-            await page.wait_for_selector(".tgme_widget_message", state="visible")
+        oldest_id_seen: Optional[int] = None
+        while len(captured_posts) < count and pages_walked < _MAX_PAGES_PER_SCRAPE:
+            if cancel_event and cancel_event.is_set():
+                break
 
-            stall_count = 0
+            batch = _extract_posts_from_html(html, processed_ids)
+            if not batch:
+                break
 
-            while len(captured_posts) < count:
-                if cancel_event and cancel_event.is_set():
-                    break
-
-                batch = await _extract_posts_from_page(page, processed_ids)
-
-                for post_data, _ in batch:
-                    captured_posts.append(post_data)
-                    if len(captured_posts) >= count:
-                        break
-
+            for post_data, numeric_id in batch:
+                if numeric_id is not None:
+                    if oldest_id_seen is None or numeric_id < oldest_id_seen:
+                        oldest_id_seen = numeric_id
+                captured_posts.append(post_data)
                 if len(captured_posts) >= count:
                     break
 
-                await _report(
-                    f"Collected {len(captured_posts)}/{count} posts, scrolling..."
-                )
+            pages_walked += 1
+            if len(captured_posts) >= count:
+                break
 
-                # Scroll up to load older messages
-                await page.evaluate("window.scrollTo(0, 0)")
-                await page.wait_for_timeout(2000)
+            await _report(
+                f"Collected {len(captured_posts)}/{count} posts, paging older..."
+            )
 
-                if not batch:
-                    stall_count += 1
-                    if stall_count >= 3:
-                        await _report(
-                            f"No new posts found after scrolling. "
-                            f"Got {len(captured_posts)}/{count}."
-                        )
-                        break
-                    await page.evaluate("window.scrollTo(0, -500)")
-                    await page.wait_for_timeout(2000)
-                else:
-                    stall_count = 0
-        finally:
-            await browser.close()
+            if oldest_id_seen is None:
+                break
+            next_url = f"{channel_url}?before={oldest_id_seen}"
+            html = await _fetch_page(client, next_url)
+            if html is None:
+                break
 
-    # Sort by post ID. Default: newest first (descending).
-    # chronological=True flips to oldest first for reading order.
     captured_posts.sort(key=_post_sort_key, reverse=not chronological)
     return captured_posts[:count]
 
@@ -270,105 +310,67 @@ async def scrape_latest(count, channel_url=CHANNEL_URL, cancel_event=None,
 async def scrape_range(start_offset, end_offset, channel_url=CHANNEL_URL,
                        cancel_event=None, progress_callback=None,
                        chronological=False):
-    """Scrape posts within an offset range from the latest.
+    """Scrape posts within an offset range from the latest."""
 
-    For example, scrape_range(2000, 1950) gets the 1950th-to-2000th
-    newest posts (50 posts total).
-
-    Uses Telegram's ?before= URL to jump directly to the right area,
-    then collects the needed number of posts.
-
-    Args:
-        start_offset: How far back to start (e.g., 2000 = skip 1999 newest).
-        end_offset: How far back to stop (e.g., 1950). Must be < start_offset.
-        channel_url: Public Telegram channel URL.
-        cancel_event: asyncio.Event to signal cancellation.
-        progress_callback: Optional async callable(str) for status updates.
-
-    Returns:
-        List of post dicts, ordered newest-first within the range.
-    """
     async def _report(msg):
         if progress_callback:
             await progress_callback(msg)
 
     needed = start_offset - end_offset
-    captured_posts = []
-    processed_ids = set()
+    if needed <= 0:
+        return []
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        try:
-            context = await browser.new_context()
-            page = await context.new_page()
+    captured_posts: list[dict] = []
+    processed_ids: set[str] = set()
+    pages_walked = 0
 
-            # 1. Load channel to find the latest post ID
-            await _report("Finding latest post ID...")
-            await page.goto(channel_url)
-            await page.wait_for_selector(".tgme_widget_message", state="visible")
+    async with _make_client() as client:
+        await _report("Finding latest post ID...")
+        first_html = await _fetch_page(client, channel_url)
+        if first_html is None:
+            return []
+        latest_id = _latest_post_id_from_html(first_html)
+        if latest_id is None:
+            return []
 
-            latest_id = await _get_latest_post_id(page)
-            if not latest_id:
-                return []
+        target_id = max(1, latest_id - end_offset)
+        jump_url = f"{channel_url}?before={target_id + 1}"
+        await _report(
+            f"Latest #{latest_id}. Jumping to ~#{target_id} (offset {end_offset})..."
+        )
+        html = await _fetch_page(client, jump_url)
+        if html is None:
+            await _report("No posts at this offset.")
+            return []
 
-            # 2. Jump to the right area using ?before=
-            target_id = latest_id - end_offset
-            if target_id < 1:
-                target_id = 1
+        oldest_id_seen: Optional[int] = None
+        while len(captured_posts) < needed and pages_walked < _MAX_PAGES_PER_SCRAPE:
+            if cancel_event and cancel_event.is_set():
+                break
 
-            jump_url = f"{channel_url}?before={target_id + 1}"
-            await _report(
-                f"Latest: #{latest_id}. Jumping to ~#{target_id} "
-                f"(offset {end_offset} from latest)..."
-            )
-            await page.goto(jump_url)
+            batch = _extract_posts_from_html(html, processed_ids)
+            if not batch:
+                break
 
-            try:
-                await page.wait_for_selector(
-                    ".tgme_widget_message", state="visible", timeout=10000
-                )
-            except Exception:
-                await _report("No posts found at this offset.")
-                return []
-
-            # 3. Collect posts — no ID filtering, just grab what's here
-            stall_count = 0
-
-            while len(captured_posts) < needed:
-                if cancel_event and cancel_event.is_set():
-                    break
-
-                batch = await _extract_posts_from_page(page, processed_ids)
-
-                for post_data, _ in batch:
-                    captured_posts.append(post_data)
-                    if len(captured_posts) >= needed:
-                        break
-
+            for post_data, numeric_id in batch:
+                if numeric_id is not None:
+                    if oldest_id_seen is None or numeric_id < oldest_id_seen:
+                        oldest_id_seen = numeric_id
+                captured_posts.append(post_data)
                 if len(captured_posts) >= needed:
                     break
 
-                await _report(
-                    f"Collected {len(captured_posts)}/{needed} posts..."
-                )
+            pages_walked += 1
+            if len(captured_posts) >= needed:
+                break
 
-                # Scroll up to load older messages
-                await page.evaluate("window.scrollTo(0, 0)")
-                await page.wait_for_timeout(2000)
+            await _report(f"Collected {len(captured_posts)}/{needed} posts...")
 
-                if not batch:
-                    stall_count += 1
-                    if stall_count >= 3:
-                        await _report(
-                            f"Got {len(captured_posts)}/{needed} posts."
-                        )
-                        break
-                    await page.evaluate("window.scrollTo(0, -500)")
-                    await page.wait_for_timeout(2000)
-                else:
-                    stall_count = 0
-        finally:
-            await browser.close()
+            if oldest_id_seen is None:
+                break
+            html = await _fetch_page(client, f"{channel_url}?before={oldest_id_seen}")
+            if html is None:
+                break
 
     captured_posts.sort(key=_post_sort_key, reverse=not chronological)
     return captured_posts[:needed]
@@ -377,22 +379,9 @@ async def scrape_range(start_offset, end_offset, channel_url=CHANNEL_URL,
 async def find_post_id_by_title(title_query, channel_url=CHANNEL_URL,
                                 max_search=2000, cancel_event=None,
                                 progress_callback=None):
-    """Find the most recent post whose text contains `title_query`.
+    """Find the most recent post whose normalized text contains `title_query`.
 
-    Walks the public Telegram channel page, scrolling to load older messages,
-    and returns the first (most recent) post where the normalized post text
-    contains the normalized query as a substring. Case-insensitive.
-
-    Args:
-        title_query: Title or unique fragment to match.
-        channel_url: Public Telegram channel URL.
-        max_search: Hard cap on number of posts scanned before giving up.
-        cancel_event: asyncio.Event to signal cancellation.
-        progress_callback: Optional async callable(str) for status updates.
-
-    Returns:
-        Tuple (numeric_id, matched_post_data) on success, or (None, None) if
-        no match is found within max_search posts.
+    Returns (numeric_id, post_data) on success or (None, None).
     """
     async def _report(msg):
         if progress_callback:
@@ -402,64 +391,51 @@ async def find_post_id_by_title(title_query, channel_url=CHANNEL_URL,
     if not needle:
         return (None, None)
 
-    processed_ids = set()
+    processed_ids: set[str] = set()
     scanned = 0
+    pages_walked = 0
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        try:
-            context = await browser.new_context()
-            page = await context.new_page()
+    async with _make_client() as client:
+        await _report(f"Searching for article: {title_query[:60]}...")
+        html = await _fetch_page(client, channel_url)
+        if html is None:
+            return (None, None)
 
-            await _report(f"Searching for article: {title_query[:60]}...")
-            await page.goto(channel_url)
-            await page.wait_for_selector(".tgme_widget_message", state="visible")
+        oldest_id_seen: Optional[int] = None
+        while scanned < max_search and pages_walked < _MAX_PAGES_PER_SCRAPE:
+            if cancel_event and cancel_event.is_set():
+                break
 
-            stall_count = 0
+            batch = _extract_posts_from_html(html, processed_ids)
+            if not batch:
+                break
 
-            while scanned < max_search:
-                if cancel_event and cancel_event.is_set():
-                    break
-
-                batch = await _extract_posts_from_page(page, processed_ids)
-
-                # Scan newest-first within the batch so the most recent match
-                # wins when multiple candidates share the page.
-                ordered = sorted(
-                    batch, key=lambda pair: pair[1] or 0, reverse=True
-                )
-                for post_data, numeric_id in ordered:
-                    scanned += 1
-                    haystack = _post_match_text(post_data)
-                    if needle in haystack:
-                        return (numeric_id, post_data)
-                    if scanned >= max_search:
-                        break
-
+            # Scan newest-first within the batch so the most recent match
+            # wins when multiple candidates share the page.
+            ordered = sorted(
+                batch, key=lambda pair: pair[1] or 0, reverse=True
+            )
+            for post_data, numeric_id in ordered:
+                scanned += 1
+                if numeric_id is not None:
+                    if oldest_id_seen is None or numeric_id < oldest_id_seen:
+                        oldest_id_seen = numeric_id
+                haystack = _post_match_text(post_data)
+                if needle in haystack:
+                    return (numeric_id, post_data)
                 if scanned >= max_search:
                     break
 
-                await _report(
-                    f"Searched {scanned}/{max_search} posts, scrolling..."
-                )
+            pages_walked += 1
+            if scanned >= max_search:
+                break
 
-                # Scroll up to load older messages
-                await page.evaluate("window.scrollTo(0, 0)")
-                await page.wait_for_timeout(2000)
-
-                if not batch:
-                    stall_count += 1
-                    if stall_count >= 3:
-                        await _report(
-                            f"No more posts to search (scanned {scanned})."
-                        )
-                        break
-                    await page.evaluate("window.scrollTo(0, -500)")
-                    await page.wait_for_timeout(2000)
-                else:
-                    stall_count = 0
-        finally:
-            await browser.close()
+            await _report(f"Searched {scanned}/{max_search} posts, paging older...")
+            if oldest_id_seen is None:
+                break
+            html = await _fetch_page(client, f"{channel_url}?before={oldest_id_seen}")
+            if html is None:
+                break
 
     return (None, None)
 
@@ -467,27 +443,9 @@ async def find_post_id_by_title(title_query, channel_url=CHANNEL_URL,
 async def scrape_forward_from(anchor_id, count, channel_url=CHANNEL_URL,
                               cancel_event=None, progress_callback=None,
                               chronological=False):
-    """Scrape `count` posts starting at `anchor_id` and moving forward in time.
-
-    The anchor post is included as the oldest item in the batch; the next
-    `count - 1` newer posts follow. To handle deleted/missing post IDs, this
-    over-requests by ~30% from the underlying ID-range scraper, then trims
-    to `count` after sorting ascending by ID.
-
-    Args:
-        anchor_id: Numeric post ID to anchor on (included in batch).
-        count: Total number of posts to return.
-        channel_url: Public Telegram channel URL.
-        cancel_event: asyncio.Event to signal cancellation.
-        progress_callback: Optional async callable(str) for status updates.
-        chronological: If True, return ascending (oldest first); else descending.
-
-    Returns:
-        List of post dicts (length up to `count`).
-    """
+    """Scrape `count` posts starting at `anchor_id` and moving forward in time."""
     if count <= 0:
         return []
-
     over_count = max(count + 5, int(count * 1.3))
     start_id = anchor_id + over_count
     end_id = anchor_id
@@ -497,12 +455,9 @@ async def scrape_forward_from(anchor_id, count, channel_url=CHANNEL_URL,
         channel_url=channel_url,
         cancel_event=cancel_event,
         progress_callback=progress_callback,
-        chronological=True,  # collect in canonical order, re-sort below
+        chronological=True,
     )
-
-    # Trim to exactly `count` posts ascending from the anchor, then apply
-    # the caller's preferred direction.
-    posts.sort(key=_post_sort_key)  # ascending (oldest first)
+    posts.sort(key=_post_sort_key)
     posts = posts[:count]
     posts.sort(key=_post_sort_key, reverse=not chronological)
     return posts
@@ -511,93 +466,69 @@ async def scrape_forward_from(anchor_id, count, channel_url=CHANNEL_URL,
 async def scrape_by_post_ids(start_id, end_id, channel_url=CHANNEL_URL,
                              cancel_event=None, progress_callback=None,
                              chronological=False):
-    """Scrape posts by actual Telegram post IDs (permanent, never change).
+    """Scrape posts by absolute Telegram post IDs (inclusive range)."""
 
-    Unlike scrape_range() which uses offsets from latest, this uses
-    absolute post IDs. Post #35808 is always post #35808 regardless
-    of how many new posts are published.
-
-    Args:
-        start_id: Newer post ID (larger number, e.g., 35808).
-        end_id: Older post ID (smaller number, e.g., 35758).
-        channel_url: Public Telegram channel URL.
-        cancel_event: asyncio.Event to signal cancellation.
-        progress_callback: Optional async callable(str) for status updates.
-
-    Returns:
-        List of post dicts, ordered newest-first.
-    """
     async def _report(msg):
         if progress_callback:
             await progress_callback(msg)
 
     needed = start_id - end_id
-    captured_posts = []
-    processed_ids = set()
+    if needed <= 0:
+        return []
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        try:
-            context = await browser.new_context()
-            page = await context.new_page()
+    captured_posts: list[dict] = []
+    processed_ids: set[str] = set()
+    pages_walked = 0
 
-            # Jump directly — no need to find latest post ID
-            jump_url = f"{channel_url}?before={start_id + 1}"
-            await _report(f"Jumping to post #{start_id}...")
-            await page.goto(jump_url)
+    async with _make_client() as client:
+        jump_url = f"{channel_url}?before={start_id + 1}"
+        await _report(f"Jumping to post #{start_id}...")
+        html = await _fetch_page(client, jump_url)
+        if html is None:
+            return []
 
-            try:
-                await page.wait_for_selector(
-                    ".tgme_widget_message", state="visible", timeout=10000
-                )
-            except Exception:
-                await _report("No posts found at this ID.")
-                return []
+        oldest_id_seen: Optional[int] = None
+        while len(captured_posts) < needed and pages_walked < _MAX_PAGES_PER_SCRAPE:
+            if cancel_event and cancel_event.is_set():
+                break
 
-            stall_count = 0
+            batch = _extract_posts_from_html(html, processed_ids)
+            if not batch:
+                break
 
-            while len(captured_posts) < needed:
-                if cancel_event and cancel_event.is_set():
-                    break
-
-                batch = await _extract_posts_from_page(page, processed_ids)
-                added_this_round = 0
-
-                for post_data, numeric_id in batch:
-                    if numeric_id is None:
-                        continue
-                    # Only include posts within the requested ID range
-                    if numeric_id >= end_id and numeric_id <= start_id:
-                        captured_posts.append(post_data)
-                        added_this_round += 1
-                        if len(captured_posts) >= needed:
-                            break
-
+            below_range = True
+            for post_data, numeric_id in batch:
+                if numeric_id is None:
+                    continue
+                if oldest_id_seen is None or numeric_id < oldest_id_seen:
+                    oldest_id_seen = numeric_id
+                if numeric_id > start_id:
+                    continue  # too new, skip
+                if numeric_id < end_id:
+                    continue  # too old, skip but keep walking
+                # In range
+                captured_posts.append(post_data)
+                below_range = False
                 if len(captured_posts) >= needed:
                     break
 
-                await _report(
-                    f"Collected {len(captured_posts)}/{needed} posts "
-                    f"(#{start_id} to #{end_id})..."
-                )
+            pages_walked += 1
+            if len(captured_posts) >= needed:
+                break
 
-                # Scroll up to load older messages
-                await page.evaluate("window.scrollTo(0, 0)")
-                await page.wait_for_timeout(2000)
+            await _report(
+                f"Collected {len(captured_posts)}/{needed} posts (#{start_id} to #{end_id})..."
+            )
 
-                if added_this_round == 0:
-                    stall_count += 1
-                    if stall_count >= 3:
-                        await _report(
-                            f"Got {len(captured_posts)}/{needed} posts."
-                        )
-                        break
-                    await page.evaluate("window.scrollTo(0, -500)")
-                    await page.wait_for_timeout(2000)
-                else:
-                    stall_count = 0
-        finally:
-            await browser.close()
+            # Stop if we've already paged below the target range AND nothing
+            # in this page was in range — nothing older will help.
+            if oldest_id_seen is not None and oldest_id_seen <= end_id and below_range:
+                break
+            if oldest_id_seen is None:
+                break
+            html = await _fetch_page(client, f"{channel_url}?before={oldest_id_seen}")
+            if html is None:
+                break
 
     captured_posts.sort(key=_post_sort_key, reverse=not chronological)
     return captured_posts[:needed]

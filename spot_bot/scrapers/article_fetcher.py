@@ -1,15 +1,29 @@
+"""Fetch full spot.uz article content using httpx (no browser).
+
+For each post that has a spot.uz link, GET the article HTML and pass
+through the existing html_cleaner. For posts without a link, fall back
+to the Telegram post text.
+"""
+
+from __future__ import annotations
+
 import asyncio
+import logging
 import time
-from playwright.async_api import async_playwright
+
+import httpx
+
 from spot_bot.config import MAX_CONCURRENT_FETCHES, USER_AGENT
 from spot_bot.cleaners.html_cleaner import clean_html, clean_telegram_text
 
-import logging
 logger = logging.getLogger(__name__)
 
 
 # Minimum interval between progress reports (seconds), matched to TTS pacing.
 _PROGRESS_DEBOUNCE = 2.0
+
+# HTTP timeouts. spot.uz can be slow under load; give it generous time.
+_FETCH_TIMEOUT_SECONDS = 25
 
 
 async def fetch_articles(posts, include_images=False, progress_callback=None,
@@ -17,16 +31,8 @@ async def fetch_articles(posts, include_images=False, progress_callback=None,
     """Fetch full article content for posts that link to spot.uz.
 
     For posts without a spot.uz link, uses the Telegram post text directly.
-
-    Args:
-        posts: List of post dicts from the scraper.
-        include_images: If True, extract article images (slower).
-        progress_callback: Optional async callable(str) for status updates.
-        stage_prefix: Optional prefix for progress messages (e.g. "[2/5] ").
-
-    Returns:
-        List of article dicts with keys: title, body, date, source, images.
     """
+
     async def _report(msg):
         if progress_callback:
             await progress_callback(f"{stage_prefix}{msg}")
@@ -46,38 +52,34 @@ async def fetch_articles(posts, include_images=False, progress_callback=None,
                 last_report_time = now
                 await _report(f"Fetching articles ({completed}/{total})...")
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent=USER_AGENT)
-
+    async with httpx.AsyncClient(
+        timeout=_FETCH_TIMEOUT_SECONDS,
+        follow_redirects=True,
+        headers={"User-Agent": USER_AGENT},
+    ) as client:
         tasks = [
             _process_post(
-                context, post, semaphore, include_images,
+                client, post, semaphore, include_images,
                 progress_one=_progress_one,
             )
             for post in posts
         ]
-
-        # Use asyncio.gather; per-task progress is reported via _progress_one
-        # as each task finishes its work.
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        articles = []
-        for result in results:
-            if isinstance(result, Exception):
-                logger.warning(f"Fetch error: {result}")
-                continue
-            if result:
-                articles.append(result)
-
-        await browser.close()
+    articles = []
+    for result in results:
+        if isinstance(result, Exception):
+            logger.warning("Fetch error: %s", result)
+            continue
+        if result:
+            articles.append(result)
 
     await _report(f"Fetched {len(articles)}/{total} articles.")
     return articles
 
 
-async def _process_post(context, post, semaphore, include_images=False,
-                        progress_one=None):
+async def _process_post(client: httpx.AsyncClient, post, semaphore,
+                        include_images=False, progress_one=None):
     """Process a single post: fetch the full article or use Telegram text."""
 
     async def _tick():
@@ -98,7 +100,6 @@ async def _process_post(context, post, semaphore, include_images=False,
                 link = l
                 break
 
-    # No spot.uz link — use Telegram text directly
     if not link:
         await _tick()
         return {
@@ -109,61 +110,30 @@ async def _process_post(context, post, semaphore, include_images=False,
             "images": [],
         }
 
-    # Fetch full article from spot.uz
     async with semaphore:
-        page = None
         try:
-            page = await context.new_page()
-
-            # Block resources for speed; keep images if requested
-            if include_images:
-                await page.route(
-                    "**/*.{svg,css,woff,woff2}",
-                    lambda route: route.abort(),
-                )
-            else:
-                await page.route(
-                    "**/*.{png,jpg,jpeg,svg,css,woff,woff2}",
-                    lambda route: route.abort(),
-                )
-
             try:
-                await page.goto(link, timeout=30000, wait_until="domcontentloaded")
-                try:
-                    await page.wait_for_selector(".contentBox", timeout=5000)
-                except Exception:
-                    pass  # Proceed anyway
+                resp = await client.get(link)
+            except (httpx.TimeoutException, httpx.NetworkError) as nav_e:
+                logger.warning("Nav error for %s: %s", link, nav_e)
+                return _telegram_fallback(telegram_text, date, [])
 
-                content = await page.content()
-            except Exception as nav_e:
-                logger.warning(f"Nav error for {link}: {nav_e}")
-                return {
-                    "title": "",
-                    "body": telegram_text,
-                    "date": date,
-                    "source": "telegram_fallback",
-                    "images": [],
-                }
+            if resp.status_code != 200:
+                logger.warning("HTTP %d for %s", resp.status_code, link)
+                return _telegram_fallback(telegram_text, date, [])
 
+            content = resp.text
             if not content:
-                return {
-                    "title": "",
-                    "body": telegram_text,
-                    "date": date,
-                    "source": "telegram_fallback",
-                    "images": [],
-                }
+                return _telegram_fallback(telegram_text, date, [])
 
             headline, body, images = clean_html(content, base_url=link)
 
             if not body:
-                return {
-                    "title": headline or "",
-                    "body": telegram_text,
-                    "date": date,
-                    "source": "telegram_fallback",
-                    "images": images if include_images else [],
-                }
+                return _telegram_fallback(
+                    telegram_text, date,
+                    images if include_images else [],
+                    title=headline or "",
+                )
 
             return {
                 "title": headline or "",
@@ -174,15 +144,17 @@ async def _process_post(context, post, semaphore, include_images=False,
             }
 
         except Exception as e:
-            logger.warning(f"Error fetching {post.get('id')}: {e}")
-            return {
-                "title": "",
-                "body": telegram_text,
-                "date": date,
-                "source": "telegram_error",
-                "images": [],
-            }
+            logger.warning("Error fetching %s: %s", post.get("id"), e)
+            return _telegram_fallback(telegram_text, date, [])
         finally:
-            if page:
-                await page.close()
             await _tick()
+
+
+def _telegram_fallback(telegram_text, date, images, title=""):
+    return {
+        "title": title,
+        "body": telegram_text,
+        "date": date,
+        "source": "telegram_fallback",
+        "images": images,
+    }
