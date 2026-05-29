@@ -18,17 +18,17 @@ _RANGE_PATTERN = re.compile(r"^(\d+)-(\d+)$")
 # Active jobs per chat — allows /cancel to work. Mutated in place by the
 # scrape launcher, the runner's finally block, /cancel, and /status, so
 # they must all reference this one dict object.
-_running_jobs = {}
+_running_jobs: dict = {}
 
 # Pending confirmation requests for title-anchored scrapes (keyed by
 # chat_id). See _ask_anchor_confirmation in runner.py.
-_pending_confirmations = {}
+_pending_confirmations: dict = {}
 
 # How long to wait for the user to click Confirm/Cancel (seconds).
 CONFIRM_TIMEOUT = 300
 
 # Pending /scrape menu state per chat (keyed by chat_id).
-_pending_scrape_configs = {}
+_pending_scrape_configs: dict = {}
 
 # Languages the bot can translate to (used by /scrape translate=<lang> and
 # /translate).

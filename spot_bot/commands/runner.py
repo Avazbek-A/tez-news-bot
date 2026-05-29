@@ -31,6 +31,7 @@ from spot_bot.scrapers.telegram_channel import (
     _post_first_line,
 )
 from spot_bot import history_db
+from spot_bot.alerts import evaluate_scrape_health
 from spot_bot.commands.common import (
     _running_jobs,
     _pending_confirmations,
@@ -387,6 +388,14 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                 )
         except Exception as e:
             logger.warning("[metrics] record_run failed: %s", e)
+
+        # Operational alerting: surface scraper breakage / sustained errors
+        # so the operator hears about it before the client does.
+        latest_mode = not (use_range or use_post_ids or use_from_title)
+        await evaluate_scrape_health(
+            bot, result=result, run_ok=run_ok,
+            latest_mode=latest_mode, requested_count=count,
+        )
 
 
 # ---------------------------------------------------------------------------

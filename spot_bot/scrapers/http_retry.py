@@ -50,7 +50,7 @@ async def fetch_text_with_retry(
     retries: int = 5,
     retryable_status=None,
     max_backoff: float = 10.0,
-    logger: logging.Logger = None,
+    logger: Optional[logging.Logger] = None,
     label: str = "Fetch",
 ) -> Optional[str]:
     """GET `url`, returning the response body text, or None on failure.

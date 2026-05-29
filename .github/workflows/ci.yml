@@ -26,13 +26,28 @@ jobs:
       - name: Lint (ruff)
         run: ruff check .
 
-      - name: Type check (mypy, non-blocking)
-        # Lenient: the legacy modules aren't fully annotated yet, so a
-        # type error shouldn't fail the build. Surfaces issues without
-        # blocking until annotations catch up.
-        run: mypy spot_bot --ignore-missing-imports --no-error-summary || true
+      - name: Type check (blocking, curated modules)
+        # The fully-typed modules are gated; a type error here fails the
+        # build. Grow this list as more modules are annotated.
+        run: >
+          mypy
+          spot_bot/alerts.py
+          spot_bot/health.py
+          spot_bot/cleaners/filters.py
+          spot_bot/scrapers/http_retry.py
+          spot_bot/commands/common.py
+
+      - name: Type check (non-blocking, rest of package)
+        # The legacy modules aren't fully annotated yet — surface issues
+        # without gating the build until they catch up.
+        run: mypy spot_bot --no-error-summary || true
 
       - name: Run tests
         env:
           BOT_TOKEN: test:dummy_token
         run: pytest -v
+
+      - name: Smoke test (offline build/wiring)
+        env:
+          BOT_TOKEN: test:dummy_token
+        run: python -m scripts.smoke_test

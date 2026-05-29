@@ -1,0 +1,28 @@
+name: Scraper canary
+
+# Synthetic check that the live scraper still works against the real
+# Telegram channel + spot.uz markup. If their HTML changes and our
+# selectors stop matching, this job fails and GitHub notifies the repo
+# owner — so we hear about breakage before users do.
+
+on:
+  schedule:
+    # Twice a day (08:00 and 20:00 UTC). Cron is best-effort on GitHub.
+    - cron: "0 8,20 * * *"
+  workflow_dispatch: {}   # allow manual runs
+
+jobs:
+  canary:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install runtime deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run live canary
+        run: python -m scripts.healthcheck
