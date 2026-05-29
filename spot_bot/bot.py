@@ -130,6 +130,7 @@ def create_app():
     app.add_handler(CommandHandler("help_filter", help_module.cmd_help_filter))
     app.add_handler(CommandHandler("help_library", help_module.cmd_help_library))
     app.add_handler(CommandHandler("help_languages", help_module.cmd_help_languages))
+    app.add_handler(CommandHandler("help_system", help_module.cmd_help_system))
     app.add_handler(CommandHandler("about", help_module.cmd_about))
     app.add_handler(CallbackQueryHandler(
         help_module.handle_help_callback,

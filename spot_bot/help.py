@@ -30,7 +30,9 @@ logger = logging.getLogger(__name__)
 
 # Categories rendered in /help; each maps to a translation key prefix.
 # /help_<key> renders the help_<key> translation entry.
-_HELP_CATEGORIES = ("scrape", "auto", "audio", "filter", "library", "languages")
+_HELP_CATEGORIES = (
+    "scrape", "auto", "audio", "filter", "library", "languages", "system",
+)
 
 
 def _get_lang() -> str:
@@ -139,6 +141,7 @@ cmd_help_audio = _make_help_category_handler("audio")
 cmd_help_filter = _make_help_category_handler("filter")
 cmd_help_library = _make_help_category_handler("library")
 cmd_help_languages = _make_help_category_handler("languages")
+cmd_help_system = _make_help_category_handler("system")
 
 
 # ---------------------------------------------------------------------------
@@ -197,8 +200,9 @@ async def handle_help_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 # setMyCommands / setMyDescription / setMyShortDescription on startup
 # ---------------------------------------------------------------------------
 
-# The 14 commands shown in Telegram's `/` autocomplete menu. Order matters —
-# users see them top-to-bottom.
+# The commands shown in Telegram's `/` autocomplete menu. Order matters —
+# users see them top-to-bottom. This is a curated shortlist of common
+# tasks; the FULL reference for every command lives in /help.
 _COMMAND_LIST_KEYS = [
     ("start",   "cmdmenu_start"),
     ("scrape",  "cmdmenu_scrape"),
@@ -208,10 +212,13 @@ _COMMAND_LIST_KEYS = [
     ("speed",   "cmdmenu_speed"),
     ("translate", "cmdmenu_translate"),
     ("summarize", "cmdmenu_summarize"),
+    ("mute",    "cmdmenu_mute"),
     ("find",    "cmdmenu_find"),
     ("bookmarks", "cmdmenu_bookmarks"),
     ("stats",   "cmdmenu_stats"),
+    ("metrics", "cmdmenu_metrics"),
     ("status",  "cmdmenu_status"),
+    ("cancel",  "cmdmenu_cancel"),
     ("help",    "cmdmenu_help"),
     ("about",   "cmdmenu_about"),
 ]
