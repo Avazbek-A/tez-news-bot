@@ -59,6 +59,18 @@ _DEFAULTS = {
     # translation (article delivered in source language). Set via
     # /translate <lang> or per-scrape with translate=<lang>.
     "translate_to": None,
+    # Phase 17: intentional content filters (counted + reported, never
+    # silent — see cleaners/filters.py).
+    # When True, a "latest" /scrape won't re-deliver posts already in
+    # delivered_post_ids. Override per-scrape with the `all` flag.
+    "skip_seen": True,
+    # When True, drop the recurring spot.uz "Курс валют" exchange-rate
+    # posts (by URL slug + title patterns). Toggle via /mute|/unmute currency.
+    "mute_currency": True,
+    # User-defined mute substrings (case-insensitive). A post whose
+    # caption/title/body contains any of these is dropped. Managed via
+    # /mute <keyword> and /unmute <keyword>.
+    "muted_keywords": [],
 }
 
 # Cap on the in-memory reading log so user_settings.json doesn't grow forever.

@@ -139,6 +139,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     send_as_file = True
     include_images = False
     combined_audio = False
+    include_seen = False  # set by the 'all' flag to bypass skip-seen
     chronological = (get_setting("chronological_order") == "oldest_first")
     translate_override = None  # set by 'translate=<lang>' flag
 
@@ -209,6 +210,8 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chronological = True
         elif arg.lower() in ("--newest-first", "newest-first", "newest"):
             chronological = False
+        elif arg.lower() == "all":
+            include_seen = True  # re-deliver already-seen posts this run
         elif arg.lower().startswith("translate=") or arg.lower().startswith("to="):
             value = arg.split("=", 1)[1].strip().lower()
             if value in _TRANSLATE_LANGS or value in ("off", "none"):
@@ -275,6 +278,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lang=lang,
             chronological=chronological,
             translate_to=translate_override,
+            include_seen=include_seen,
         )
     )
 
@@ -290,7 +294,8 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                    include_audio=False, include_images=False,
                    send_as_file=True, combined_audio=False,
                    voice=None, rate=TTS_RATE, lang="en",
-                   chronological=False, translate_to=None):
+                   chronological=False, translate_to=None,
+                   include_seen=False):
     """Background task that runs the full pipeline + delivery."""
     result = None
 
@@ -311,6 +316,7 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             progress_callback=progress_callback,
             chronological=chronological,
             translate_to=translate_to,
+            include_seen=include_seen,
         )
         if use_from_title:
             # Two-stage flow: resolve title at the bot layer, ask user to
@@ -380,7 +386,19 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             return
 
         if not result.articles:
-            await status_msg.edit_text(t("no_articles", lang))
+            # If everything was intentionally filtered, say so rather than
+            # a bare "nothing found" — otherwise skip-seen/mute looks like a
+            # broken scrape.
+            extra = []
+            if result.skipped_seen_count:
+                extra.append(t("no_articles_skipped_seen", lang,
+                               n=result.skipped_seen_count))
+            if result.muted_count:
+                extra.append(t("no_articles_muted", lang, n=result.muted_count))
+            msg = t("no_articles", lang)
+            if extra:
+                msg += "\n" + " ".join(extra)
+            await status_msg.edit_text(msg)
             return
 
         # When title-anchored, send a SEPARATE message announcing the
@@ -475,6 +493,13 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         if include_images:
             line_keys.append("delivery_line_images")
             line_args.append({"n": images_sent})
+        # Surface intentional filtering so a dropped post is never silent.
+        if result.skipped_seen_count:
+            line_keys.append("delivery_line_skipped_seen")
+            line_args.append({"n": result.skipped_seen_count})
+        if result.muted_count:
+            line_keys.append("delivery_line_muted")
+            line_args.append({"n": result.muted_count})
         body_lines = [
             t(k, lang, **a) for k, a in zip(line_keys, line_args)
         ]
@@ -1266,6 +1291,106 @@ async def cmd_dedup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t("dedup_set_off", lang))
     else:
         await update.message.reply_text(t("dedup_set_on", lang, n=n))
+
+
+async def cmd_skipseen(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/skipseen [on|off] — toggle skipping already-delivered posts on a
+    plain `/scrape N`. Use the `all` flag on /scrape to override one run."""
+    args = context.args or []
+    lang = _get_lang()
+    current = bool(get_setting("skip_seen"))
+
+    if not args:
+        await update.message.reply_text(
+            t("skipseen_status_on" if current else "skipseen_status_off", lang)
+        )
+        return
+
+    choice = args[0].lower()
+    if choice in ("on", "1", "yes", "true"):
+        new_value = True
+    elif choice in ("off", "0", "no", "false"):
+        new_value = False
+    else:
+        await update.message.reply_text(t("skipseen_usage", lang))
+        return
+
+    set_setting("skip_seen", new_value)
+    await update.message.reply_text(
+        t("skipseen_set_on" if new_value else "skipseen_set_off", lang)
+    )
+
+
+def _format_mutes(lang):
+    """Build a human-readable summary of the active mute rules."""
+    currency_on = bool(get_setting("mute_currency"))
+    keywords = list(get_setting("muted_keywords") or [])
+    parts = []
+    parts.append(
+        t("mute_currency_on", lang) if currency_on
+        else t("mute_currency_off", lang)
+    )
+    if keywords:
+        parts.append(t("mute_keywords_list", lang, list=", ".join(keywords)))
+    else:
+        parts.append(t("mute_keywords_none", lang))
+    return "\n".join(parts)
+
+
+async def cmd_mute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/mute [currency|<keyword ...>] — mute the recurring currency posts
+    or add keyword(s). No args shows the current mute rules."""
+    args = context.args or []
+    lang = _get_lang()
+
+    if not args:
+        await update.message.reply_text(_format_mutes(lang))
+        return
+
+    if args[0].lower() == "currency":
+        set_setting("mute_currency", True)
+        await update.message.reply_text(t("mute_currency_set", lang))
+        return
+
+    # Treat all args as keywords to add.
+    new_kws = [a.strip().lower() for a in args if a.strip()]
+    existing = list(get_setting("muted_keywords") or [])
+    for kw in new_kws:
+        if kw not in existing:
+            existing.append(kw)
+    set_setting("muted_keywords", existing)
+    await update.message.reply_text(
+        t("mute_keywords_added", lang, list=", ".join(new_kws))
+    )
+
+
+async def cmd_unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/unmute [currency|all|<keyword ...>] — undo a mute rule."""
+    args = context.args or []
+    lang = _get_lang()
+
+    if not args:
+        await update.message.reply_text(t("unmute_usage", lang))
+        return
+
+    first = args[0].lower()
+    if first == "currency":
+        set_setting("mute_currency", False)
+        await update.message.reply_text(t("unmute_currency_set", lang))
+        return
+    if first in ("all", "clear", "none"):
+        set_setting("muted_keywords", [])
+        set_setting("mute_currency", False)
+        await update.message.reply_text(t("unmute_all", lang))
+        return
+
+    drop = {a.strip().lower() for a in args if a.strip()}
+    existing = list(get_setting("muted_keywords") or [])
+    remaining = [kw for kw in existing if kw not in drop]
+    set_setting("muted_keywords", remaining)
+    await update.message.reply_text(
+        t("unmute_keywords_removed", lang, list=", ".join(sorted(drop)))
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2357,6 +2482,9 @@ def create_app():
     app.add_handler(CommandHandler("quality", cmd_quality))
     app.add_handler(CommandHandler("topics", cmd_topics))
     app.add_handler(CommandHandler("dedup", cmd_dedup))
+    app.add_handler(CommandHandler("skipseen", cmd_skipseen))
+    app.add_handler(CommandHandler("mute", cmd_mute))
+    app.add_handler(CommandHandler("unmute", cmd_unmute))
     app.add_handler(CommandHandler("today", cmd_today))
     app.add_handler(CommandHandler("yesterday", cmd_yesterday))
     app.add_handler(CommandHandler("thisweek", cmd_thisweek))
