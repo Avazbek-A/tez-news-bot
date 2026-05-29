@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import re
 from datetime import datetime, timedelta
 from html import unescape
@@ -37,7 +38,16 @@ _POSTS_PER_PAGE_HINT = 20
 
 # Conservative HTTP defaults.
 _HTTP_TIMEOUT_SECONDS = 20
-_HTTP_RETRIES = 2
+# Total attempts per page = _HTTP_RETRIES + 1. Telegram's t.me/s/ endpoint
+# rate-limits aggressively (429) and occasionally 5xx's under load; a
+# single missed page silently drops the entire older tail of a scrape, so
+# we retry generously with exponential backoff before ever giving up.
+_HTTP_RETRIES = 5
+# HTTP statuses worth retrying — transient server / rate-limit responses.
+# 404/403 etc. are permanent for a given URL, so we don't waste attempts.
+_RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
+# Cap on a single backoff sleep (seconds).
+_MAX_BACKOFF_SECONDS = 10.0
 _USER_AGENT = (
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -135,26 +145,67 @@ def _post_sort_key(post):
 # HTTP fetch + HTML parsing
 # ---------------------------------------------------------------------------
 
+def _backoff_seconds(attempt: int) -> float:
+    """Exponential backoff with jitter: ~0.5, 1, 2, 4, 8s (+ jitter), capped."""
+    base = min(_MAX_BACKOFF_SECONDS, 0.5 * (2 ** attempt))
+    return base + random.uniform(0, 0.4)
+
+
+def _retry_after_seconds(resp: httpx.Response, attempt: int) -> float:
+    """Honor a server-sent Retry-After header (429/503), else use backoff."""
+    ra = resp.headers.get("Retry-After")
+    if ra:
+        try:
+            return min(_MAX_BACKOFF_SECONDS * 3, float(ra))
+        except (ValueError, TypeError):
+            pass
+    return _backoff_seconds(attempt)
+
+
 async def _fetch_page(client: httpx.AsyncClient, url: str) -> Optional[str]:
-    """GET `url`, return HTML body or None on failure. Retries transient errors."""
-    last_exc: Optional[Exception] = None
+    """GET `url`, return HTML body or None on failure.
+
+    Retries transient failures generously — network errors, timeouts, and
+    retryable HTTP statuses (429 rate-limit, 5xx) — with exponential
+    backoff and jitter, honoring any Retry-After header. Permanent
+    statuses (404/403) return None immediately. Giving up here silently
+    drops posts, so we lean toward more attempts.
+    """
+    last_problem: Optional[str] = None
     for attempt in range(_HTTP_RETRIES + 1):
         try:
             resp = await client.get(url)
             if resp.status_code == 200:
                 return resp.text
+            if resp.status_code in _RETRYABLE_STATUS and attempt < _HTTP_RETRIES:
+                delay = _retry_after_seconds(resp, attempt)
+                logger.warning(
+                    "Channel page HTTP %d for %s — retry %d/%d in %.1fs",
+                    resp.status_code, url, attempt + 1, _HTTP_RETRIES, delay,
+                )
+                await asyncio.sleep(delay)
+                last_problem = f"HTTP {resp.status_code}"
+                continue
+            # Permanent status, or retryable but out of attempts.
             logger.warning(
-                "Channel page returned HTTP %d for %s",
-                resp.status_code, url,
+                "Channel page returned HTTP %d for %s", resp.status_code, url,
             )
             return None
         except (httpx.TimeoutException, httpx.NetworkError) as e:
-            last_exc = e
+            last_problem = repr(e)
             if attempt < _HTTP_RETRIES:
-                await asyncio.sleep(0.5 * (attempt + 1))
+                delay = _backoff_seconds(attempt)
+                logger.warning(
+                    "Channel fetch error for %s (%s) — retry %d/%d in %.1fs",
+                    url, e, attempt + 1, _HTTP_RETRIES, delay,
+                )
+                await asyncio.sleep(delay)
                 continue
-    if last_exc is not None:
-        logger.warning("Channel fetch gave up on %s: %s", url, last_exc)
+    if last_problem is not None:
+        logger.warning(
+            "Channel fetch gave up on %s after %d attempts: %s",
+            url, _HTTP_RETRIES + 1, last_problem,
+        )
     return None
 
 
@@ -232,8 +283,17 @@ def _extract_posts_from_html(html: str, processed_ids: set):
                     date_obj = _parse_date(date_link.text(strip=True) or "")
 
             if date_obj is None:
-                processed_ids.add(post_id)
-                continue
+                # Last resort: keep the post with today's date rather than
+                # dropping it. A missing/odd date must never cause a real
+                # news item to silently vanish — an approximate date is
+                # always better than a missed post. (Telegram's t.me/s/
+                # pages normally carry a machine-readable datetime, so this
+                # path is rare.)
+                logger.warning(
+                    "Post %s has no parseable date; defaulting to today "
+                    "to avoid dropping it", post_id,
+                )
+                date_obj = datetime.now().date()
 
             # Content
             text_el = msg.css_first(".tgme_widget_message_text.js-message_text")
@@ -342,6 +402,13 @@ async def scrape_latest(count, channel_url=CHANNEL_URL, cancel_event=None,
             next_url = f"{channel_url}?before={oldest_id_seen}"
             html = await _fetch_page(client, next_url)
             if html is None:
+                # Sustained fetch failure (all retries exhausted). Don't
+                # pretend the short list is the full result — tell the user
+                # it's partial so a network issue can't silently hide news.
+                await _report(
+                    f"⚠️ Network issue while paging; returning "
+                    f"{len(captured_posts)}/{count} posts collected so far."
+                )
                 break
 
     captured_posts.sort(key=_post_sort_key, reverse=not chronological)
@@ -411,6 +478,10 @@ async def scrape_range(start_offset, end_offset, channel_url=CHANNEL_URL,
                 break
             html = await _fetch_page(client, f"{channel_url}?before={oldest_id_seen}")
             if html is None:
+                await _report(
+                    f"⚠️ Network issue while paging; returning "
+                    f"{len(captured_posts)}/{needed} posts collected so far."
+                )
                 break
 
     captured_posts.sort(key=_post_sort_key, reverse=not chronological)
@@ -651,6 +722,11 @@ async def scrape_by_post_ids(start_id, end_id, channel_url=CHANNEL_URL,
                 break
             html = await _fetch_page(client, f"{channel_url}?before={oldest_id_seen}")
             if html is None:
+                await _report(
+                    f"⚠️ Network issue while paging; returning "
+                    f"{len(captured_posts)}/{needed} posts (#{start_id}-#{end_id}) "
+                    f"collected so far."
+                )
                 break
 
     captured_posts.sort(key=_post_sort_key, reverse=not chronological)
