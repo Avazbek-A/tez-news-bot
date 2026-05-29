@@ -57,3 +57,11 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keep_ads = bool(get_setting("include_ads"))
     body += "\n" + t("status_ads_on" if keep_ads else "status_ads_off", lang)
     await update.message.reply_text(body)
+
+
+async def cmd_chatid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/chatid — report this chat's numeric ID. Use it to set the
+    ALERT_CHAT_ID env var so operational alerts are delivered here."""
+    chat_id = update.effective_chat.id
+    lang = _get_lang()
+    await update.message.reply_text(t("chatid_body", lang, chat_id=chat_id))

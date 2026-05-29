@@ -64,7 +64,7 @@ from spot_bot.commands.sources_cmds import (
     cmd_removesource,
     cmd_channel,
 )
-from spot_bot.commands.status_cmd import cmd_status
+from spot_bot.commands.status_cmd import cmd_status, cmd_chatid
 from spot_bot.commands.auto import cmd_auto, _schedule_auto_scrape
 
 logger = logging.getLogger(__name__)
@@ -143,6 +143,7 @@ def create_app():
     app.add_handler(CommandHandler("channel", cmd_channel))
     app.add_handler(CommandHandler("order", cmd_order))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("chatid", cmd_chatid))
     app.add_handler(CommandHandler("auto", cmd_auto))
     app.add_handler(CommandHandler("ads", cmd_ads))
     app.add_handler(CommandHandler("summarize", cmd_summarize))

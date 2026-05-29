@@ -15,13 +15,15 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
-from pathlib import Path
 from typing import Iterable, Optional
+
+from spot_bot.paths import data_path, ensure_parent
 
 logger = logging.getLogger(__name__)
 
 
-DB_PATH = Path(__file__).parent / "history.db"
+# Lives on DATA_DIR (a mounted volume in prod), else next to the code.
+DB_PATH = data_path("history.db")
 
 
 _SCHEMA = """
@@ -107,6 +109,7 @@ def _migrate(conn) -> None:
 
 
 def _connect():
+    ensure_parent(DB_PATH)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
