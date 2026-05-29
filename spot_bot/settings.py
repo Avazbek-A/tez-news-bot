@@ -77,6 +77,31 @@ _DEFAULTS = {
 DELIVERED_LOG_MAX = 5000
 
 
+# Settings-file schema version. Bump when a migration is added to
+# `_migrate_settings`. Field-level back-compat (bookmarks, sources) is also
+# handled lazily in the accessors below; this gives newer structural
+# changes a single, ordered home.
+_SETTINGS_VERSION = 1
+
+
+def _migrate_settings(data: dict) -> dict:
+    """Apply ordered settings-file migrations in place, tracked by the
+    `settings_version` field. A no-op for already-current files.
+
+    Future example:
+        v = data.get("settings_version", 0)
+        if v < 2:
+            data["new_key"] = derive_from(data)
+        data["settings_version"] = 2
+    """
+    v = data.get("settings_version", 0)
+    if v < _SETTINGS_VERSION:
+        # No structural migrations yet — just stamp the current version so
+        # future ones can run incrementally.
+        data["settings_version"] = _SETTINGS_VERSION
+    return data
+
+
 def remember_delivered(post_ids):
     """Append numeric post IDs to the delivered log, dedupe, and trim
     to DELIVERED_LOG_MAX (keeping the highest IDs)."""
@@ -155,10 +180,10 @@ def load_settings():
                 data = json.load(f)
             # Merge with defaults (in case new keys were added)
             merged = {**_DEFAULTS, **data}
-            return merged
+            return _migrate_settings(merged)
     except (json.JSONDecodeError, OSError) as e:
         logger.warning(f"Settings load error (using defaults): {e}")
-    return dict(_DEFAULTS)
+    return _migrate_settings(dict(_DEFAULTS))
 
 
 def save_settings(data):

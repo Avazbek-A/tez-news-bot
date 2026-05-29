@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Test article — Spot.uz fixture</title>
+  <meta property="og:image" content="https://www.spot.uz/media/img/2026/05/cover_l.webp">
+</head>
+<body>
+  <header class="siteHeader">
+    <a href="/"><img src="/i/logo-simple.svg" alt="Spot"></a>
+    <nav>menu that should be stripped</nav>
+  </header>
+
+  <main>
+    <h1>Узбекистан и Гонконг подготовят соглашение о воздушном сообщении</h1>
+    <div class="articleMeta">
+      <span class="date">8 мая 2026</span>
+      <span class="author">Spot</span>
+    </div>
+
+    <div class="articleContent js-mediator-article">
+      <!-- Cover image: full-size URL on the lightbox <a>, thumbnail on <img> -->
+      <a class="lightbox-img lightbox-post-cover"
+         href="https://www.spot.uz/media/img/2026/05/cover_l.webp">
+        <img itemprop="image" class="postCover"
+             src="https://www.spot.uz/media/img/2026/05/cover_b.webp"
+             alt="авиаперелеты, гонконг, минтранс">
+      </a>
+
+      <p>Узбекистан и Гонконг договорились подготовить к подписанию
+      межправительственное соглашение о воздушном сообщении. Об этом
+      сообщили в пресс-службе Министерства транспорта республики по итогам
+      переговоров, прошедших на этой неделе.</p>
+
+      <p>Документ должен открыть прямое авиасообщение между странами и
+      упростить процедуры для перевозчиков. Стороны рассчитывают завершить
+      согласование текста к июлю текущего года.</p>
+
+      <div class="read-also">
+        <a href="/ru/2026/05/01/other/">Читайте также: другая статья</a>
+      </div>
+
+      <p>По данным ведомства, прямые рейсы позволят нарастить взаимный
+      турпоток и грузовые перевозки. Сейчас пассажиры вынуждены лететь со
+      стыковками через третьи страны, что увеличивает время в пути.</p>
+
+      <!-- Body images use lazy-load; same image ships at _b (big) and _s
+           (small) — the cleaner should keep only the larger variant. -->
+      <div class="articleImage">
+        <img data-lazy="https://www.spot.uz/media/img/2026/05/body1_b.webp"
+             itemprop="image" alt="самолет">
+      </div>
+      <div class="articleImage">
+        <img data-lazy="https://www.spot.uz/media/img/2026/05/body1_s.webp"
+             itemprop="image" alt="самолет">
+      </div>
+      <div class="articleImage">
+        <img data-lazy="https://www.spot.uz/media/img/2026/05/body2_b.webp"
+             itemprop="image" alt="аэропорт">
+      </div>
+
+      <p>В Минтрансе добавили, что параллельно идёт работа над расширением
+      географии полётов и в другие города региона.</p>
+
+      <!-- Tracking pixel that must be dropped -->
+      <img src="https://tracker.example.com/pixel.gif" width="1" height="1">
+
+      <div class="social-share">share buttons that should be stripped</div>
+    </div>
+  </main>
+
+  <footer class="siteFooter">© Spot.uz — footer that should be stripped</footer>
+</body>
+</html>

@@ -70,11 +70,48 @@ CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics_runs(ts);
 """
 
 
+# ---------------------------------------------------------------------------
+# Schema versioning / migrations
+#
+# `_SCHEMA` above is the v1 baseline — it creates a fresh DB's tables and
+# must NOT be changed again. Every subsequent schema change (new column,
+# new table, backfill) goes in `_MIGRATIONS` as the NEXT integer version,
+# and `_migrate` applies the pending ones in order, tracked by SQLite's
+# built-in `PRAGMA user_version`. This makes column changes safe in
+# production instead of relying on CREATE-IF-NOT-EXISTS guesswork.
+#
+# Example of a future migration:
+#   _MIGRATIONS = {
+#       2: ["ALTER TABLE history ADD COLUMN lang TEXT DEFAULT ''"],
+#   }
+# ---------------------------------------------------------------------------
+_SCHEMA_VERSION = 1
+_MIGRATIONS: dict[int, list[str]] = {}
+
+
+def _migrate(conn) -> None:
+    """Bring the DB schema up to _SCHEMA_VERSION via user_version steps."""
+    cur_v = conn.execute("PRAGMA user_version").fetchone()[0]
+    if cur_v == 0:
+        # Fresh DB or a pre-versioning one. Either way `_SCHEMA` (run on
+        # connect) has created the v1 baseline tables, so stamp it as v1 —
+        # then let the loop below apply any migrations (2+) on top.
+        conn.execute("PRAGMA user_version = 1")
+        cur_v = 1
+    for version in sorted(_MIGRATIONS):
+        if version > cur_v:
+            for stmt in _MIGRATIONS[version]:
+                conn.execute(stmt)
+            conn.execute(f"PRAGMA user_version = {version}")
+            cur_v = version
+
+
 def _connect():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.executescript(_SCHEMA)
+    _migrate(conn)
     return conn
 
 
