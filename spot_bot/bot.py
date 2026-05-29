@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 import shlex
+import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 
 logger = logging.getLogger(__name__)
@@ -299,6 +300,9 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                    include_seen=False):
     """Background task that runs the full pipeline + delivery."""
     result = None
+    run_started = time.monotonic()
+    run_ok = True
+    run_error = None
 
     try:
         async def progress_callback(text):
@@ -581,12 +585,15 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                 pass
 
     except asyncio.CancelledError:
+        # User cancellation isn't a failure; don't flag the run as errored.
         try:
             await status_msg.edit_text(t("cancelled", lang))
         except Exception:
             pass
 
     except Exception as e:
+        run_ok = False
+        run_error = repr(e)
         try:
             await status_msg.edit_text(t("error", lang, e=e))
         except Exception:
@@ -597,6 +604,36 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         if result and result.audio_results:
             cleanup_audio_files(result.audio_results, None)
         _running_jobs.pop(chat_id, None)
+
+        # Operational metrics: one tiny SQLite row per run (best-effort).
+        # Derived entirely from `result` so it's robust on early returns.
+        try:
+            if result is not None:
+                n_articles = len(result.articles)
+                n_audio = sum(1 for _, p in result.audio_results if p)
+                n_images = sum(
+                    len(a.get("images") or []) for a in result.articles
+                )
+                history_db.record_run(
+                    articles=n_articles,
+                    skipped_seen=result.skipped_seen_count,
+                    muted=result.muted_count,
+                    audio=n_audio,
+                    images=n_images,
+                    partial=result.partial,
+                    duration_ms=int((time.monotonic() - run_started) * 1000),
+                    ok=run_ok,
+                    error=run_error,
+                )
+            else:
+                # Errored before producing a result — still record the run.
+                history_db.record_run(
+                    duration_ms=int((time.monotonic() - run_started) * 1000),
+                    ok=run_ok,
+                    error=run_error,
+                )
+        except Exception as e:
+            logger.warning("[metrics] record_run failed: %s", e)
 
 
 # ---------------------------------------------------------------------------
@@ -1594,6 +1631,36 @@ async def cmd_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
+async def cmd_metrics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/metrics — operational health (last 7 days), read from the local
+    SQLite metrics. No external monitoring system; travels with the DB."""
+    lang = _get_lang()
+    m = history_db.metrics_snapshot(days=7)
+    runs = m["runs"]
+    # Error/partial rates as percentages of total runs (guard div-by-zero).
+    err_pct = round(100 * m["errors"] / runs) if runs else 0
+    partial_pct = round(100 * m["partial"] / runs) if runs else 0
+    avg_s = round(m["avg_duration_ms"] / 1000, 1)
+    text = t(
+        "metrics_body", lang,
+        days=m["days"],
+        runs=runs,
+        today_runs=m["today_runs"],
+        today_articles=m["today_articles"],
+        articles=m["articles"],
+        audio=m["audio"],
+        images=m["images"],
+        skipped_seen=m["skipped_seen"],
+        muted=m["muted"],
+        errors=m["errors"],
+        err_pct=err_pct,
+        partial=m["partial"],
+        partial_pct=partial_pct,
+        avg_s=avg_s,
+    )
+    await update.message.reply_text(text)
+
+
 # ---------------------------------------------------------------------------
 # /find <query> — search delivered articles
 # ---------------------------------------------------------------------------
@@ -2405,6 +2472,7 @@ def create_app():
     app.add_handler(CommandHandler("bookmark", cmd_bookmark))
     app.add_handler(CommandHandler("bookmarks", cmd_bookmarks))
     app.add_handler(CommandHandler("stats", cmd_stats))
+    app.add_handler(CommandHandler("metrics", cmd_metrics))
     app.add_handler(CommandHandler("unbookmark", cmd_unbookmark))
     app.add_handler(CommandHandler("sources", cmd_sources))
     app.add_handler(CommandHandler("addsource", cmd_addsource))

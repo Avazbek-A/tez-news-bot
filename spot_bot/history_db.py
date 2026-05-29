@@ -50,6 +50,23 @@ CREATE TABLE IF NOT EXISTS translations (
     cached_at INTEGER NOT NULL,
     PRIMARY KEY (article_id, target_lang)
 );
+
+-- Operational metrics: one tiny row per scrape run. No external system —
+-- lives in this same SQLite file, so it travels with the bot when hosting
+-- moves (e.g. Railway -> a Linux laptop). Read via /metrics.
+CREATE TABLE IF NOT EXISTS metrics_runs (
+    ts           INTEGER NOT NULL,         -- unix time at run completion
+    articles     INTEGER NOT NULL DEFAULT 0,
+    skipped_seen INTEGER NOT NULL DEFAULT 0,
+    muted        INTEGER NOT NULL DEFAULT 0,
+    audio        INTEGER NOT NULL DEFAULT 0,
+    images       INTEGER NOT NULL DEFAULT 0,
+    partial      INTEGER NOT NULL DEFAULT 0, -- 0/1
+    duration_ms  INTEGER NOT NULL DEFAULT 0,
+    ok           INTEGER NOT NULL DEFAULT 1, -- 0 = run errored
+    error        TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_metrics_ts ON metrics_runs(ts);
 """
 
 
@@ -254,6 +271,95 @@ def cache_summary(article_id: str, summary: str, lang: str) -> None:
             conn.close()
     except sqlite3.Error as e:
         logger.warning("history_db cache_summary failed: %s", e)
+
+
+def record_run(*, articles=0, skipped_seen=0, muted=0, audio=0, images=0,
+               partial=False, duration_ms=0, ok=True, error=None) -> None:
+    """Record one scrape run's operational metrics. Best-effort — never
+    raises, so a metrics failure can't break a delivery."""
+    try:
+        conn = _connect()
+        try:
+            with conn:
+                conn.execute(
+                    """
+                    INSERT INTO metrics_runs (
+                        ts, articles, skipped_seen, muted, audio, images,
+                        partial, duration_ms, ok, error
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        int(time.time()), int(articles), int(skipped_seen),
+                        int(muted), int(audio), int(images),
+                        1 if partial else 0, int(duration_ms),
+                        1 if ok else 0, (error or None),
+                    ),
+                )
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        logger.warning("history_db record_run failed: %s", e)
+
+
+def metrics_snapshot(days: int = 7) -> dict:
+    """Aggregate recent run metrics over the last `days` (and today).
+
+    Returns counts/sums plus derived rates — everything /metrics needs to
+    show bot health without any external monitoring system.
+    """
+    now = int(time.time())
+    since_week = now - days * 86400
+    since_today = now - 86400
+    empty = {
+        "runs": 0, "articles": 0, "skipped_seen": 0, "muted": 0,
+        "audio": 0, "images": 0, "partial": 0, "errors": 0,
+        "avg_duration_ms": 0, "today_runs": 0, "today_articles": 0,
+        "days": days,
+    }
+    try:
+        conn = _connect()
+        try:
+            cur = conn.execute(
+                """
+                SELECT COUNT(*) AS runs,
+                       COALESCE(SUM(articles), 0) AS articles,
+                       COALESCE(SUM(skipped_seen), 0) AS skipped_seen,
+                       COALESCE(SUM(muted), 0) AS muted,
+                       COALESCE(SUM(audio), 0) AS audio,
+                       COALESCE(SUM(images), 0) AS images,
+                       COALESCE(SUM(partial), 0) AS partial,
+                       COALESCE(SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END), 0) AS errors,
+                       COALESCE(AVG(duration_ms), 0) AS avg_duration_ms
+                FROM metrics_runs WHERE ts >= ?
+                """,
+                (since_week,),
+            )
+            row = cur.fetchone()
+            cur2 = conn.execute(
+                "SELECT COUNT(*) AS r, COALESCE(SUM(articles),0) AS a "
+                "FROM metrics_runs WHERE ts >= ?",
+                (since_today,),
+            )
+            today = cur2.fetchone()
+            return {
+                "runs": int(row["runs"] or 0),
+                "articles": int(row["articles"] or 0),
+                "skipped_seen": int(row["skipped_seen"] or 0),
+                "muted": int(row["muted"] or 0),
+                "audio": int(row["audio"] or 0),
+                "images": int(row["images"] or 0),
+                "partial": int(row["partial"] or 0),
+                "errors": int(row["errors"] or 0),
+                "avg_duration_ms": int(row["avg_duration_ms"] or 0),
+                "today_runs": int(today["r"] or 0),
+                "today_articles": int(today["a"] or 0),
+                "days": days,
+            }
+        finally:
+            conn.close()
+    except sqlite3.Error as e:
+        logger.warning("history_db metrics_snapshot failed: %s", e)
+        return empty
 
 
 def stats(since_unix: int = 0) -> dict:
