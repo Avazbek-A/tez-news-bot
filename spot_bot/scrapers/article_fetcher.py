@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import time
 
 import httpx
@@ -24,6 +25,67 @@ _PROGRESS_DEBOUNCE = 2.0
 
 # HTTP timeouts. spot.uz can be slow under load; give it generous time.
 _FETCH_TIMEOUT_SECONDS = 25
+
+# Article-fetch retry policy. spot.uz returns transient 5xx / 429 under
+# load and occasionally times out. Without retries a single blip silently
+# degrades the article to its short Telegram caption (content loss) or, if
+# the caption is empty too, drops the post entirely. Retry generously
+# before falling back.
+_FETCH_RETRIES = 4  # total attempts = _FETCH_RETRIES + 1
+_RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
+_MAX_FETCH_BACKOFF_SECONDS = 8.0
+
+
+def _fetch_backoff(attempt: int) -> float:
+    """Exponential backoff with jitter for article fetches."""
+    base = min(_MAX_FETCH_BACKOFF_SECONDS, 0.5 * (2 ** attempt))
+    return base + random.uniform(0, 0.4)
+
+
+async def _get_article_html(client: httpx.AsyncClient, link: str):
+    """GET a spot.uz article with retries on transient failures.
+
+    Returns the HTML text on success, or None if every attempt failed
+    (caller then falls back to the Telegram caption). Retries network
+    errors, timeouts, and retryable HTTP statuses (429 / 5xx) with
+    exponential backoff; permanent statuses (404/410/403) bail
+    immediately since retrying can't help.
+    """
+    for attempt in range(_FETCH_RETRIES + 1):
+        try:
+            resp = await client.get(link)
+        except (httpx.TimeoutException, httpx.NetworkError) as e:
+            if attempt < _FETCH_RETRIES:
+                delay = _fetch_backoff(attempt)
+                logger.info(
+                    "Article fetch error for %s (%s) — retry %d/%d in %.1fs",
+                    link, e, attempt + 1, _FETCH_RETRIES, delay,
+                )
+                await asyncio.sleep(delay)
+                continue
+            logger.warning("Article fetch gave up on %s: %s", link, e)
+            return None
+
+        if resp.status_code == 200:
+            return resp.text or None
+
+        if resp.status_code in _RETRYABLE_STATUS and attempt < _FETCH_RETRIES:
+            ra = resp.headers.get("Retry-After")
+            try:
+                delay = min(20.0, float(ra)) if ra else _fetch_backoff(attempt)
+            except (ValueError, TypeError):
+                delay = _fetch_backoff(attempt)
+            logger.info(
+                "Article HTTP %d for %s — retry %d/%d in %.1fs",
+                resp.status_code, link, attempt + 1, _FETCH_RETRIES, delay,
+            )
+            await asyncio.sleep(delay)
+            continue
+
+        logger.warning("HTTP %d for %s", resp.status_code, link)
+        return None
+
+    return None
 
 
 async def fetch_articles(posts, include_images=False, progress_callback=None,
@@ -123,20 +185,9 @@ async def _process_post(client: httpx.AsyncClient, post, semaphore,
 
     async with semaphore:
         try:
-            try:
-                resp = await client.get(link)
-            except (httpx.TimeoutException, httpx.NetworkError) as nav_e:
-                logger.warning("Nav error for %s: %s", link, nav_e)
-                return _telegram_fallback(telegram_text, date, [],
-                                          post_id=post_id)
-
-            if resp.status_code != 200:
-                logger.warning("HTTP %d for %s", resp.status_code, link)
-                return _telegram_fallback(telegram_text, date,
-                                          tg_photos if include_images else [],
-                                          post_id=post_id)
-
-            content = resp.text
+            # Retry transient fetch failures (429/5xx/timeouts) before
+            # degrading to the Telegram caption — see _get_article_html.
+            content = await _get_article_html(client, link)
             if not content:
                 return _telegram_fallback(telegram_text, date,
                                           tg_photos if include_images else [],
@@ -189,10 +240,17 @@ async def _process_post(client: httpx.AsyncClient, post, semaphore,
 
 
 def _telegram_fallback(telegram_text, date, images, title="", post_id=""):
+    # Guarantee a non-empty body whenever there's *any* content. When the
+    # spot.uz fetch failed and the Telegram caption is empty, fall back to
+    # the headline so the pipeline's empty-body filter doesn't silently
+    # drop a real post. Only a post with no caption AND no title is truly
+    # empty (e.g. a bare sticker/photo with no link), and dropping that is
+    # fine.
+    body = (telegram_text or "").strip() or (title or "").strip()
     return {
         "id": post_id,
         "title": title,
-        "body": telegram_text,
+        "body": body,
         "date": date,
         "source": "telegram_fallback",
         "images": images,
