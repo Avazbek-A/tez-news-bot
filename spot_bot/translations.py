@@ -1340,6 +1340,54 @@ _STRINGS = {
         ),
     },
 
+    'metrics_body': {
+        "en": (
+            "📈 Health (last {days} days)\n"
+            "\n"
+            "Runs: {runs} ({today_runs} today, {today_articles} articles today)\n"
+            "Articles: {articles}   Audio: {audio}   Images: {images}\n"
+            "Skipped seen: {skipped_seen}   Muted: {muted}\n"
+            "Errors: {errors} ({err_pct}%)   Partial: {partial} ({partial_pct}%)\n"
+            "Avg run: {avg_s}s"
+        ),
+        "ru": (
+            "📈 Здоровье (за {days} дней)\n"
+            "\n"
+            "Запусков: {runs} (сегодня {today_runs}, статей сегодня {today_articles})\n"
+            "Статей: {articles}   Аудио: {audio}   Картинок: {images}\n"
+            "Пропущено виденных: {skipped_seen}   Приглушено: {muted}\n"
+            "Ошибок: {errors} ({err_pct}%)   Неполных: {partial} ({partial_pct}%)\n"
+            "Среднее время: {avg_s}с"
+        ),
+        "uz": (
+            "📈 Holat (so'nggi {days} kun)\n"
+            "\n"
+            "Ishga tushishlar: {runs} (bugun {today_runs}, bugun {today_articles} maqola)\n"
+            "Maqolalar: {articles}   Audio: {audio}   Rasmlar: {images}\n"
+            "Ko'rilgan o'tkazildi: {skipped_seen}   Ovozsiz: {muted}\n"
+            "Xatolar: {errors} ({err_pct}%)   To'liq emas: {partial} ({partial_pct}%)\n"
+            "O'rtacha vaqt: {avg_s}s"
+        ),
+        "de": (
+            "📈 Zustand (letzte {days} Tage)\n"
+            "\n"
+            "Läufe: {runs} (heute {today_runs}, heute {today_articles} Artikel)\n"
+            "Artikel: {articles}   Audio: {audio}   Bilder: {images}\n"
+            "Gesehene übersprungen: {skipped_seen}   Stumm: {muted}\n"
+            "Fehler: {errors} ({err_pct}%)   Teilweise: {partial} ({partial_pct}%)\n"
+            "Ø Laufzeit: {avg_s}s"
+        ),
+        "tr": (
+            "📈 Durum (son {days} gün)\n"
+            "\n"
+            "Çalışma: {runs} (bugün {today_runs}, bugün {today_articles} makale)\n"
+            "Makaleler: {articles}   Ses: {audio}   Görseller: {images}\n"
+            "Görülen atlandı: {skipped_seen}   Sessize alınan: {muted}\n"
+            "Hatalar: {errors} ({err_pct}%)   Kısmi: {partial} ({partial_pct}%)\n"
+            "Ort. süre: {avg_s}s"
+        ),
+    },
+
     'bookmark_usage': {
         "en": (
             "Usage: /bookmark <post_id> [tag1 tag2 ...]\n"
