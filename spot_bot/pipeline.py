@@ -92,6 +92,10 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
     # "latest" mode = no explicit range/title/anchor. Skip-seen only applies
     # here; explicit ranges are deliberate requests for specific posts.
     latest_mode = False
+    # Scrapers set scrape_stats["partial"]=True if a walk ended early on a
+    # sustained network failure, so the delivery card can flag the result
+    # as incomplete (rather than mistaking a short list for the full set).
+    scrape_stats: dict = {}
 
     # 1. Scrape posts — title-anchored, post IDs, offset range, or latest
     _check_cancelled(cancel_event)
@@ -109,6 +113,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
             chronological=chronological,
+            stats=scrape_stats,
         )
         matched_post_id = forward_anchor_id
     elif from_title:
@@ -136,6 +141,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
             chronological=chronological,
+            stats=scrape_stats,
         )
         # Stash the preview + anchor ID for the caller's status messages
         matched_title_preview = preview
@@ -148,6 +154,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
             chronological=chronological,
+            stats=scrape_stats,
         )
     elif start_offset is not None and end_offset is not None:
         needed = start_offset - end_offset
@@ -158,6 +165,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
             chronological=chronological,
+            stats=scrape_stats,
         )
     else:
         count = count or 20
@@ -180,6 +188,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
                 cancel_event=cancel_event,
                 progress_callback=progress_callback,
                 chronological=chronological,
+                stats=scrape_stats,
             )
 
     # Intentional pre-fetch filters: skip already-seen (latest mode only)
@@ -205,6 +214,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             matched_post_id=matched_post_id,
             skipped_seen_count=skipped_seen_count,
             muted_count=muted_count,
+            partial=bool(scrape_stats.get("partial")),
         )
 
     # 2. Fetch full article content (Telegram-origin only; RSS already has body)
@@ -281,6 +291,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
         matched_post_id=matched_post_id,
         skipped_seen_count=skipped_seen_count,
         muted_count=muted_count,
+        partial=bool(scrape_stats.get("partial")),
     )
 
     # 4. Generate audio (optional)

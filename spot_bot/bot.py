@@ -503,6 +503,11 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         body_lines = [
             t(k, lang, **a) for k, a in zip(line_keys, line_args)
         ]
+        # A network-truncated scrape is flagged so a short batch isn't
+        # mistaken for the full request (durable, unlike the transient
+        # progress warning).
+        if result.partial:
+            body_lines.append(t("delivery_line_partial", lang))
         summary_block = "\n".join(body_lines)
 
         # Extract post ID range from articles for "next batch" hint

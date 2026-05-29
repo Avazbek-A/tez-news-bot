@@ -15,6 +15,7 @@ import pytest
 
 import spot_bot.scrapers.telegram_channel as tc
 import spot_bot.scrapers.article_fetcher as af
+import spot_bot.scrapers.http_retry as hr
 
 
 # ---------- Fakes ----------
@@ -45,10 +46,13 @@ class _ScriptedClient:
 
 @pytest.fixture(autouse=True)
 def _no_sleep(monkeypatch):
-    """Make all backoff sleeps instant so retry tests run fast."""
-    monkeypatch.setattr(tc, "_backoff_seconds", lambda attempt: 0.0)
-    monkeypatch.setattr(tc, "_retry_after_seconds", lambda resp, attempt: 0.0)
-    monkeypatch.setattr(af, "_fetch_backoff", lambda attempt: 0.0)
+    """Make all backoff sleeps instant so retry tests run fast.
+
+    Both scrapers now share http_retry, so patching its backoff helpers
+    neutralizes sleeps everywhere.
+    """
+    monkeypatch.setattr(hr, "backoff_seconds", lambda attempt, **kw: 0.0)
+    monkeypatch.setattr(hr, "retry_after_seconds", lambda resp, attempt, **kw: 0.0)
 
 
 # ---------- _fetch_page (channel pages) ----------
@@ -104,11 +108,11 @@ async def test_fetch_page_honors_retry_after_header(monkeypatch):
     """A 429 with Retry-After is retried (header parsing path)."""
     seen = {}
 
-    def fake_retry_after(resp, attempt):
+    def fake_retry_after(resp, attempt, **kw):
         seen["ra"] = resp.headers.get("Retry-After")
         return 0.0
 
-    monkeypatch.setattr(tc, "_retry_after_seconds", fake_retry_after)
+    monkeypatch.setattr(hr, "retry_after_seconds", fake_retry_after)
     client = _ScriptedClient([
         _Resp(status_code=429, headers={"Retry-After": "1"}),
         _Resp(status_code=200, text="<html>ok</html>"),
@@ -230,3 +234,43 @@ def test_fallback_body_prefers_caption_when_present():
 def test_fallback_body_empty_when_no_content():
     out = af._telegram_fallback("", "2026-01-01", [], title="", post_id="spotuz/7")
     assert out["body"] == ""
+
+
+# ---------- Partial-scrape flag (B3) ----------
+
+@pytest.mark.asyncio
+async def test_scrape_latest_sets_partial_on_initial_fetch_failure(monkeypatch):
+    """If the very first page fetch fails, scrape_latest flags the run as
+    partial via the stats dict (so the delivery card can warn)."""
+    async def fail_fetch(client, url):
+        return None
+
+    monkeypatch.setattr(tc, "_fetch_page", fail_fetch)
+    stats = {}
+    posts = await tc.scrape_latest(10, stats=stats)
+    assert posts == []
+    assert stats.get("partial") is True
+
+
+@pytest.mark.asyncio
+async def test_scrape_latest_no_partial_on_clean_run(monkeypatch):
+    """A normal run leaves the stats dict without a partial flag."""
+    page = (
+        '<div class="tgme_widget_message" data-post="spotuz/5">'
+        '<div class="tgme_widget_message_date">'
+        '<time datetime="2026-05-01T10:00:00+00:00">May 1</time></div>'
+        '<div class="tgme_widget_message_text js-message_text">Hi</div>'
+        '</div>'
+    )
+    calls = {"n": 0}
+
+    async def one_page(client, url):
+        # Serve the page once, then act like end-of-channel (empty).
+        calls["n"] += 1
+        return page if calls["n"] == 1 else ""
+
+    monkeypatch.setattr(tc, "_fetch_page", one_page)
+    stats = {}
+    posts = await tc.scrape_latest(1, stats=stats)
+    assert len(posts) == 1
+    assert stats.get("partial") is not True

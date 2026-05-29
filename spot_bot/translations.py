@@ -2881,6 +2881,13 @@ _STRINGS = {
         "de": "  🔇 {n} stummgeschaltet",
         "tr": "  🔇 {n} sessize alındı",
     },
+    'delivery_line_partial': {
+        "en": "  ⚠️ partial result — a network issue cut the scrape short; re-run to get the rest.",
+        "ru": "  ⚠️ неполный результат — сбой сети прервал сбор; повторите, чтобы получить остальное.",
+        "uz": "  ⚠️ to'liq emas — tarmoq xatosi yig'ishni to'xtatdi; qolganini olish uchun qayta urinib ko'ring.",
+        "de": "  ⚠️ Teilergebnis — ein Netzwerkfehler hat den Scrape verkürzt; erneut ausführen für den Rest.",
+        "tr": "  ⚠️ kısmi sonuç — bir ağ sorunu taramayı kesti; kalanı için tekrar çalıştırın.",
+    },
 
     'translate_status_off': {
         "en": "Article translation is OFF. /translate <lang> to enable (lang: en, ru, uz, de, tr).",
