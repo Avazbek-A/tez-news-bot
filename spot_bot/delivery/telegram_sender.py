@@ -632,7 +632,6 @@ async def send_combined_voice(bot: Bot, chat_id: int, results: list,
     if not batches:
         return 0
 
-    total_articles = sum(1 for _, p in results if p and os.path.exists(p))
     delivered = 0
     tmpdir = tempfile.mkdtemp(prefix="spot_voice_")
 

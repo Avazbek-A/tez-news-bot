@@ -1,0 +1,20 @@
+# Lenient to start: enforce the rules that catch real bugs (pyflakes `F`:
+# unused imports, undefined names, unused variables) plus a few safe
+# pycodestyle errors. Style/line-length rules are intentionally left out
+# for now to avoid a large churn across the legacy modules — they can be
+# enabled incrementally.
+target-version = "py39"
+line-length = 100
+# Maintained code is the package + its tests. Root-level one-off scripts
+# (extract_content.py, index_posts.py) predate this and have their own
+# issues tracked separately.
+include = ["spot_bot/**/*.py", "tests/**/*.py"]
+
+[lint]
+select = ["F", "E9", "W6"]
+# E501 (line too long) is noisy across the existing code; skip for now.
+ignore = ["E501"]
+
+[lint.per-file-ignores]
+# Tests may keep intentionally-unused fixtures/imports.
+"tests/*" = []

@@ -13,7 +13,6 @@ at one hour each.
 import asyncio
 import os
 import shutil
-import subprocess
 import tempfile
 
 import logging

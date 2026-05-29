@@ -23,6 +23,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-dev.txt
 
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Type check (mypy, non-blocking)
+        # Lenient: the legacy modules aren't fully annotated yet, so a
+        # type error shouldn't fail the build. Surfaces issues without
+        # blocking until annotations catch up.
+        run: mypy spot_bot --ignore-missing-imports --no-error-summary || true
+
       - name: Run tests
         env:
           BOT_TOKEN: test:dummy_token

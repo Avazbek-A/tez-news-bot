@@ -16,7 +16,7 @@ from spot_bot.translation import translate_article as _translate_article
 from spot_bot.scrapers.article_fetcher import fetch_articles
 from spot_bot.cleaners.text_cleaner import clean_batch
 from spot_bot.cleaners.filters import filter_posts, mute_articles
-from spot_bot.audio.tts_generator import generate_batch, cleanup_audio_files
+from spot_bot.audio.tts_generator import generate_batch
 from spot_bot.config import DEFAULT_VOICE, TTS_RATE
 from spot_bot.settings import get_setting
 
@@ -157,7 +157,6 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             stats=scrape_stats,
         )
     elif start_offset is not None and end_offset is not None:
-        needed = start_offset - end_offset
         await _report(f"[1/4] Scraping posts {start_offset}-{end_offset} from latest...")
         posts = await scrape_range(
             start_offset, end_offset,

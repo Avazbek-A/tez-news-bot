@@ -6,6 +6,8 @@ returned counts.
 """
 from __future__ import annotations
 
+import pytest
+
 from spot_bot.cleaners.filters import (
     filter_posts,
     mute_articles,
@@ -178,3 +180,64 @@ def test_matches_currency_multilingual():
     assert _matches_currency("Valyuta kurslari", None)
     assert _matches_currency("Today's currency rate", None)
     assert not _matches_currency("A normal headline", None)
+
+
+# ---------- Pipeline-level: counts propagate to PipelineResult ----------
+
+@pytest.mark.asyncio
+async def test_pipeline_propagates_skip_and_mute_counts(monkeypatch):
+    """End-to-end through run_pipeline (with scrape/fetch mocked): an
+    already-seen post and a currency post are filtered, and both counts
+    land on PipelineResult so the delivery card can show them."""
+    import spot_bot.pipeline as pl
+
+    settings = {
+        "channel_url": "https://t.me/s/spotuz",
+        "skip_seen": True,
+        "delivered_post_ids": [101],          # post 101 already seen
+        "mute_currency": True,
+        "muted_keywords": [],
+        "include_ads": False,
+        "translate_to": None,
+        "enable_summaries": False,
+        "quality_threshold": 0,               # disable quality filter
+        "dup_threshold": 100,                 # disable dedupe
+        "topics": [],
+        "language": "en",
+    }
+    monkeypatch.setattr(pl, "get_setting", lambda k: settings.get(k))
+    # Single source → takes the scrape_latest path.
+    monkeypatch.setattr(
+        pl, "get_sources",
+        lambda: [{"id": "default", "type": "telegram", "url": settings["channel_url"]}],
+    )
+
+    fake_posts = [
+        {"id": "spotuz/100", "text_html": "Normal news", "links": [], "has_spot_link": False},
+        {"id": "spotuz/101", "text_html": "Seen news", "links": [], "has_spot_link": False},
+        {"id": "spotuz/102", "text_html": "Курс валют",
+         "links": ["https://www.spot.uz/ru/2026/05/08/currency-exchange/"],
+         "has_spot_link": True},
+    ]
+
+    async def fake_scrape_latest(count, **kw):
+        return list(fake_posts)
+
+    async def fake_fetch_articles(posts, **kw):
+        # One article per surviving post.
+        return [
+            {"id": p["id"], "title": "T", "body": "Body text here", "images": []}
+            for p in posts
+        ]
+
+    monkeypatch.setattr(pl, "scrape_latest", fake_scrape_latest)
+    monkeypatch.setattr(pl, "fetch_articles", fake_fetch_articles)
+    monkeypatch.setattr(pl, "clean_batch", lambda arts, include_ads=False: arts)
+
+    result = await pl.run_pipeline(count=10)
+
+    # post 101 skipped (seen), post 102 muted (currency) → only 100 survives
+    assert result.skipped_seen_count == 1
+    assert result.muted_count == 1
+    assert [a["id"] for a in result.articles] == ["spotuz/100"]
+    assert result.partial is False
