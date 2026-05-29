@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
 import time
 
 import httpx
 
 from spot_bot.config import MAX_CONCURRENT_FETCHES, USER_AGENT
 from spot_bot.cleaners.html_cleaner import clean_html, clean_telegram_text
+from spot_bot.scrapers.http_retry import fetch_text_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -30,62 +30,23 @@ _FETCH_TIMEOUT_SECONDS = 25
 # load and occasionally times out. Without retries a single blip silently
 # degrades the article to its short Telegram caption (content loss) or, if
 # the caption is empty too, drops the post entirely. Retry generously
-# before falling back.
+# before falling back. (Shared policy lives in http_retry.)
 _FETCH_RETRIES = 4  # total attempts = _FETCH_RETRIES + 1
-_RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
 _MAX_FETCH_BACKOFF_SECONDS = 8.0
 
 
-def _fetch_backoff(attempt: int) -> float:
-    """Exponential backoff with jitter for article fetches."""
-    base = min(_MAX_FETCH_BACKOFF_SECONDS, 0.5 * (2 ** attempt))
-    return base + random.uniform(0, 0.4)
-
-
 async def _get_article_html(client: httpx.AsyncClient, link: str):
-    """GET a spot.uz article with retries on transient failures.
+    """GET a spot.uz article with the shared resilient retry policy.
 
     Returns the HTML text on success, or None if every attempt failed
-    (caller then falls back to the Telegram caption). Retries network
-    errors, timeouts, and retryable HTTP statuses (429 / 5xx) with
-    exponential backoff; permanent statuses (404/410/403) bail
-    immediately since retrying can't help.
-    """
-    for attempt in range(_FETCH_RETRIES + 1):
-        try:
-            resp = await client.get(link)
-        except (httpx.TimeoutException, httpx.NetworkError) as e:
-            if attempt < _FETCH_RETRIES:
-                delay = _fetch_backoff(attempt)
-                logger.info(
-                    "Article fetch error for %s (%s) — retry %d/%d in %.1fs",
-                    link, e, attempt + 1, _FETCH_RETRIES, delay,
-                )
-                await asyncio.sleep(delay)
-                continue
-            logger.warning("Article fetch gave up on %s: %s", link, e)
-            return None
-
-        if resp.status_code == 200:
-            return resp.text or None
-
-        if resp.status_code in _RETRYABLE_STATUS and attempt < _FETCH_RETRIES:
-            ra = resp.headers.get("Retry-After")
-            try:
-                delay = min(20.0, float(ra)) if ra else _fetch_backoff(attempt)
-            except (ValueError, TypeError):
-                delay = _fetch_backoff(attempt)
-            logger.info(
-                "Article HTTP %d for %s — retry %d/%d in %.1fs",
-                resp.status_code, link, attempt + 1, _FETCH_RETRIES, delay,
-            )
-            await asyncio.sleep(delay)
-            continue
-
-        logger.warning("HTTP %d for %s", resp.status_code, link)
-        return None
-
-    return None
+    (caller then falls back to the Telegram caption)."""
+    return await fetch_text_with_retry(
+        client, link,
+        retries=_FETCH_RETRIES,
+        max_backoff=_MAX_FETCH_BACKOFF_SECONDS,
+        logger=logger,
+        label="Article fetch",
+    )
 
 
 async def fetch_articles(posts, include_images=False, progress_callback=None,

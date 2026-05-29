@@ -16,9 +16,7 @@ pipeline.py and bot.py don't change:
 
 from __future__ import annotations
 
-import asyncio
 import logging
-import random
 import re
 from datetime import datetime, timedelta
 from html import unescape
@@ -28,6 +26,7 @@ import httpx
 from selectolax.parser import HTMLParser
 
 from spot_bot.config import CHANNEL_URL
+from spot_bot.scrapers.http_retry import fetch_text_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -145,68 +144,17 @@ def _post_sort_key(post):
 # HTTP fetch + HTML parsing
 # ---------------------------------------------------------------------------
 
-def _backoff_seconds(attempt: int) -> float:
-    """Exponential backoff with jitter: ~0.5, 1, 2, 4, 8s (+ jitter), capped."""
-    base = min(_MAX_BACKOFF_SECONDS, 0.5 * (2 ** attempt))
-    return base + random.uniform(0, 0.4)
-
-
-def _retry_after_seconds(resp: httpx.Response, attempt: int) -> float:
-    """Honor a server-sent Retry-After header (429/503), else use backoff."""
-    ra = resp.headers.get("Retry-After")
-    if ra:
-        try:
-            return min(_MAX_BACKOFF_SECONDS * 3, float(ra))
-        except (ValueError, TypeError):
-            pass
-    return _backoff_seconds(attempt)
-
-
 async def _fetch_page(client: httpx.AsyncClient, url: str) -> Optional[str]:
-    """GET `url`, return HTML body or None on failure.
-
-    Retries transient failures generously — network errors, timeouts, and
-    retryable HTTP statuses (429 rate-limit, 5xx) — with exponential
-    backoff and jitter, honoring any Retry-After header. Permanent
-    statuses (404/403) return None immediately. Giving up here silently
-    drops posts, so we lean toward more attempts.
-    """
-    last_problem: Optional[str] = None
-    for attempt in range(_HTTP_RETRIES + 1):
-        try:
-            resp = await client.get(url)
-            if resp.status_code == 200:
-                return resp.text
-            if resp.status_code in _RETRYABLE_STATUS and attempt < _HTTP_RETRIES:
-                delay = _retry_after_seconds(resp, attempt)
-                logger.warning(
-                    "Channel page HTTP %d for %s — retry %d/%d in %.1fs",
-                    resp.status_code, url, attempt + 1, _HTTP_RETRIES, delay,
-                )
-                await asyncio.sleep(delay)
-                last_problem = f"HTTP {resp.status_code}"
-                continue
-            # Permanent status, or retryable but out of attempts.
-            logger.warning(
-                "Channel page returned HTTP %d for %s", resp.status_code, url,
-            )
-            return None
-        except (httpx.TimeoutException, httpx.NetworkError) as e:
-            last_problem = repr(e)
-            if attempt < _HTTP_RETRIES:
-                delay = _backoff_seconds(attempt)
-                logger.warning(
-                    "Channel fetch error for %s (%s) — retry %d/%d in %.1fs",
-                    url, e, attempt + 1, _HTTP_RETRIES, delay,
-                )
-                await asyncio.sleep(delay)
-                continue
-    if last_problem is not None:
-        logger.warning(
-            "Channel fetch gave up on %s after %d attempts: %s",
-            url, _HTTP_RETRIES + 1, last_problem,
-        )
-    return None
+    """GET a channel page with the shared resilient retry policy
+    (see `http_retry.fetch_text_with_retry`). Returns HTML or None."""
+    return await fetch_text_with_retry(
+        client, url,
+        retries=_HTTP_RETRIES,
+        retryable_status=_RETRYABLE_STATUS,
+        max_backoff=_MAX_BACKOFF_SECONDS,
+        logger=logger,
+        label="Channel page",
+    )
 
 
 # Regex matches background-image: url('https://...') / url("https://...")
@@ -355,8 +303,13 @@ def _make_client() -> httpx.AsyncClient:
 # ---------------------------------------------------------------------------
 
 async def scrape_latest(count, channel_url=CHANNEL_URL, cancel_event=None,
-                        progress_callback=None, chronological=False):
-    """Scrape the latest `count` posts from a Telegram channel."""
+                        progress_callback=None, chronological=False,
+                        stats=None):
+    """Scrape the latest `count` posts from a Telegram channel.
+
+    `stats`, when a dict, receives `stats["partial"]=True` if the walk
+    ended early on a sustained network failure (so the caller can warn
+    that the result is incomplete rather than the full request)."""
 
     async def _report(msg):
         if progress_callback:
@@ -370,6 +323,8 @@ async def scrape_latest(count, channel_url=CHANNEL_URL, cancel_event=None,
         await _report(f"Opening {channel_url}...")
         html = await _fetch_page(client, channel_url)
         if html is None:
+            if stats is not None:
+                stats["partial"] = True
             return []
 
         oldest_id_seen: Optional[int] = None
@@ -405,6 +360,8 @@ async def scrape_latest(count, channel_url=CHANNEL_URL, cancel_event=None,
                 # Sustained fetch failure (all retries exhausted). Don't
                 # pretend the short list is the full result — tell the user
                 # it's partial so a network issue can't silently hide news.
+                if stats is not None:
+                    stats["partial"] = True
                 await _report(
                     f"⚠️ Network issue while paging; returning "
                     f"{len(captured_posts)}/{count} posts collected so far."
@@ -417,8 +374,10 @@ async def scrape_latest(count, channel_url=CHANNEL_URL, cancel_event=None,
 
 async def scrape_range(start_offset, end_offset, channel_url=CHANNEL_URL,
                        cancel_event=None, progress_callback=None,
-                       chronological=False):
-    """Scrape posts within an offset range from the latest."""
+                       chronological=False, stats=None):
+    """Scrape posts within an offset range from the latest.
+
+    `stats` (dict) receives `partial=True` on a sustained network failure."""
 
     async def _report(msg):
         if progress_callback:
@@ -436,6 +395,8 @@ async def scrape_range(start_offset, end_offset, channel_url=CHANNEL_URL,
         await _report("Finding latest post ID...")
         first_html = await _fetch_page(client, channel_url)
         if first_html is None:
+            if stats is not None:
+                stats["partial"] = True
             return []
         latest_id = _latest_post_id_from_html(first_html)
         if latest_id is None:
@@ -448,6 +409,8 @@ async def scrape_range(start_offset, end_offset, channel_url=CHANNEL_URL,
         )
         html = await _fetch_page(client, jump_url)
         if html is None:
+            if stats is not None:
+                stats["partial"] = True
             await _report("No posts at this offset.")
             return []
 
@@ -478,6 +441,8 @@ async def scrape_range(start_offset, end_offset, channel_url=CHANNEL_URL,
                 break
             html = await _fetch_page(client, f"{channel_url}?before={oldest_id_seen}")
             if html is None:
+                if stats is not None:
+                    stats["partial"] = True
                 await _report(
                     f"⚠️ Network issue while paging; returning "
                     f"{len(captured_posts)}/{needed} posts collected so far."
@@ -554,7 +519,7 @@ async def find_post_id_by_title(title_query, channel_url=CHANNEL_URL,
 
 async def scrape_forward_from(anchor_id, count, channel_url=CHANNEL_URL,
                               cancel_event=None, progress_callback=None,
-                              chronological=False):
+                              chronological=False, stats=None):
     """Scrape `count` posts starting at `anchor_id` and moving forward in time."""
     if count <= 0:
         return []
@@ -568,6 +533,7 @@ async def scrape_forward_from(anchor_id, count, channel_url=CHANNEL_URL,
         cancel_event=cancel_event,
         progress_callback=progress_callback,
         chronological=True,
+        stats=stats,
     )
     posts.sort(key=_post_sort_key)
     posts = posts[:count]
@@ -659,8 +625,10 @@ async def find_post_ids_for_date_range(start_date, end_date,
 
 async def scrape_by_post_ids(start_id, end_id, channel_url=CHANNEL_URL,
                              cancel_event=None, progress_callback=None,
-                             chronological=False):
-    """Scrape posts by absolute Telegram post IDs (inclusive range)."""
+                             chronological=False, stats=None):
+    """Scrape posts by absolute Telegram post IDs (inclusive range).
+
+    `stats` (dict) receives `partial=True` on a sustained network failure."""
 
     async def _report(msg):
         if progress_callback:
@@ -679,6 +647,8 @@ async def scrape_by_post_ids(start_id, end_id, channel_url=CHANNEL_URL,
         await _report(f"Jumping to post #{start_id}...")
         html = await _fetch_page(client, jump_url)
         if html is None:
+            if stats is not None:
+                stats["partial"] = True
             return []
 
         oldest_id_seen: Optional[int] = None
@@ -722,6 +692,8 @@ async def scrape_by_post_ids(start_id, end_id, channel_url=CHANNEL_URL,
                 break
             html = await _fetch_page(client, f"{channel_url}?before={oldest_id_seen}")
             if html is None:
+                if stats is not None:
+                    stats["partial"] = True
                 await _report(
                     f"⚠️ Network issue while paging; returning "
                     f"{len(captured_posts)}/{needed} posts (#{start_id}-#{end_id}) "

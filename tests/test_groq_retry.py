@@ -3,7 +3,7 @@
 The Groq SDK's behavior is mocked end-to-end here. None of these tests
 actually hit the network, so they're fast and deterministic.
 """
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

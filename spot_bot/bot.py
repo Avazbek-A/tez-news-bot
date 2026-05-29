@@ -49,6 +49,7 @@ from datetime import datetime, timedelta, timezone
 from spot_bot.observability import start_heartbeat_task
 from spot_bot import history_db
 from spot_bot import help as help_module
+from spot_bot.commands.filter_cmds import cmd_skipseen, cmd_mute, cmd_unmute
 
 
 _RANGE_PATTERN = re.compile(r"^(\d+)-(\d+)$")
@@ -139,6 +140,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
     send_as_file = True
     include_images = False
     combined_audio = False
+    include_seen = False  # set by the 'all' flag to bypass skip-seen
     chronological = (get_setting("chronological_order") == "oldest_first")
     translate_override = None  # set by 'translate=<lang>' flag
 
@@ -209,6 +211,8 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             chronological = True
         elif arg.lower() in ("--newest-first", "newest-first", "newest"):
             chronological = False
+        elif arg.lower() == "all":
+            include_seen = True  # re-deliver already-seen posts this run
         elif arg.lower().startswith("translate=") or arg.lower().startswith("to="):
             value = arg.split("=", 1)[1].strip().lower()
             if value in _TRANSLATE_LANGS or value in ("off", "none"):
@@ -275,6 +279,7 @@ async def cmd_scrape(update: Update, context: ContextTypes.DEFAULT_TYPE):
             lang=lang,
             chronological=chronological,
             translate_to=translate_override,
+            include_seen=include_seen,
         )
     )
 
@@ -290,7 +295,8 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
                    include_audio=False, include_images=False,
                    send_as_file=True, combined_audio=False,
                    voice=None, rate=TTS_RATE, lang="en",
-                   chronological=False, translate_to=None):
+                   chronological=False, translate_to=None,
+                   include_seen=False):
     """Background task that runs the full pipeline + delivery."""
     result = None
 
@@ -311,6 +317,7 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             progress_callback=progress_callback,
             chronological=chronological,
             translate_to=translate_to,
+            include_seen=include_seen,
         )
         if use_from_title:
             # Two-stage flow: resolve title at the bot layer, ask user to
@@ -380,7 +387,19 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             return
 
         if not result.articles:
-            await status_msg.edit_text(t("no_articles", lang))
+            # If everything was intentionally filtered, say so rather than
+            # a bare "nothing found" — otherwise skip-seen/mute looks like a
+            # broken scrape.
+            extra = []
+            if result.skipped_seen_count:
+                extra.append(t("no_articles_skipped_seen", lang,
+                               n=result.skipped_seen_count))
+            if result.muted_count:
+                extra.append(t("no_articles_muted", lang, n=result.muted_count))
+            msg = t("no_articles", lang)
+            if extra:
+                msg += "\n" + " ".join(extra)
+            await status_msg.edit_text(msg)
             return
 
         # When title-anchored, send a SEPARATE message announcing the
@@ -475,9 +494,21 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         if include_images:
             line_keys.append("delivery_line_images")
             line_args.append({"n": images_sent})
+        # Surface intentional filtering so a dropped post is never silent.
+        if result.skipped_seen_count:
+            line_keys.append("delivery_line_skipped_seen")
+            line_args.append({"n": result.skipped_seen_count})
+        if result.muted_count:
+            line_keys.append("delivery_line_muted")
+            line_args.append({"n": result.muted_count})
         body_lines = [
             t(k, lang, **a) for k, a in zip(line_keys, line_args)
         ]
+        # A network-truncated scrape is flagged so a short batch isn't
+        # mistaken for the full request (durable, unlike the transient
+        # progress warning).
+        if result.partial:
+            body_lines.append(t("delivery_line_partial", lang))
         summary_block = "\n".join(body_lines)
 
         # Extract post ID range from articles for "next batch" hint
@@ -1268,6 +1299,11 @@ async def cmd_dedup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t("dedup_set_on", lang, n=n))
 
 
+# /skipseen, /mute, /unmute live in spot_bot/commands/filter_cmds.py
+# (first slice of the bot.py decomposition). They're imported near the
+# top of this module and registered in main().
+
+
 # ---------------------------------------------------------------------------
 # /today, /yesterday, /thisweek, /since — date-based scrape shortcuts
 # ---------------------------------------------------------------------------
@@ -1720,7 +1756,6 @@ async def _handle_share_callback(update: Update,
     for forwarding to another chat.
     """
     query = update.callback_query
-    lang = _get_lang()
     chat_id = query.message.chat_id if query.message else update.effective_chat.id
     data = query.data or ""
     if not data.startswith("share_"):
@@ -2357,6 +2392,9 @@ def create_app():
     app.add_handler(CommandHandler("quality", cmd_quality))
     app.add_handler(CommandHandler("topics", cmd_topics))
     app.add_handler(CommandHandler("dedup", cmd_dedup))
+    app.add_handler(CommandHandler("skipseen", cmd_skipseen))
+    app.add_handler(CommandHandler("mute", cmd_mute))
+    app.add_handler(CommandHandler("unmute", cmd_unmute))
     app.add_handler(CommandHandler("today", cmd_today))
     app.add_handler(CommandHandler("yesterday", cmd_yesterday))
     app.add_handler(CommandHandler("thisweek", cmd_thisweek))

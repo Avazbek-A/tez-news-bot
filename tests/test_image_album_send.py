@@ -8,8 +8,6 @@ single bad URL doesn't drop the entire album.
 """
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 

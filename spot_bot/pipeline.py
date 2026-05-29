@@ -15,7 +15,8 @@ from spot_bot.summary import summarize as _summarize
 from spot_bot.translation import translate_article as _translate_article
 from spot_bot.scrapers.article_fetcher import fetch_articles
 from spot_bot.cleaners.text_cleaner import clean_batch
-from spot_bot.audio.tts_generator import generate_batch, cleanup_audio_files
+from spot_bot.cleaners.filters import filter_posts, mute_articles
+from spot_bot.audio.tts_generator import generate_batch
 from spot_bot.config import DEFAULT_VOICE, TTS_RATE
 from spot_bot.settings import get_setting
 
@@ -33,6 +34,13 @@ class PipelineResult:
     matched_post_id: int = 0
     # True when from_title was provided but no matching post was found.
     title_not_found: bool = False
+    # Phase 17: how many posts the intentional filters dropped, so the
+    # delivery card can show them (never a silent loss).
+    skipped_seen_count: int = 0
+    muted_count: int = 0
+    # True when the scrape ended early on a sustained network failure, so
+    # the delivered list is a partial result rather than the full request.
+    partial: bool = False
 
 
 def _check_cancelled(cancel_event):
@@ -50,7 +58,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
                        voice=DEFAULT_VOICE, rate=TTS_RATE,
                        channel_url=None, cancel_event=None,
                        progress_callback=None, chronological=False,
-                       translate_to=None):
+                       translate_to=None, include_seen=False):
     """Run the full scrape -> fetch -> clean -> audio pipeline.
 
     Args:
@@ -81,6 +89,13 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
     matched_title_preview = ""
     matched_post_id = 0
     prefetched_articles = []  # RSS-source articles, already have body filled in
+    # "latest" mode = no explicit range/title/anchor. Skip-seen only applies
+    # here; explicit ranges are deliberate requests for specific posts.
+    latest_mode = False
+    # Scrapers set scrape_stats["partial"]=True if a walk ended early on a
+    # sustained network failure, so the delivery card can flag the result
+    # as incomplete (rather than mistaking a short list for the full set).
+    scrape_stats: dict = {}
 
     # 1. Scrape posts — title-anchored, post IDs, offset range, or latest
     _check_cancelled(cancel_event)
@@ -98,6 +113,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
             chronological=chronological,
+            stats=scrape_stats,
         )
         matched_post_id = forward_anchor_id
     elif from_title:
@@ -125,6 +141,7 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
             chronological=chronological,
+            stats=scrape_stats,
         )
         # Stash the preview + anchor ID for the caller's status messages
         matched_title_preview = preview
@@ -137,9 +154,9 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
             chronological=chronological,
+            stats=scrape_stats,
         )
     elif start_offset is not None and end_offset is not None:
-        needed = start_offset - end_offset
         await _report(f"[1/4] Scraping posts {start_offset}-{end_offset} from latest...")
         posts = await scrape_range(
             start_offset, end_offset,
@@ -147,9 +164,11 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
             cancel_event=cancel_event,
             progress_callback=progress_callback,
             chronological=chronological,
+            stats=scrape_stats,
         )
     else:
         count = count or 20
+        latest_mode = True
         # Multi-source path: when more than one configured source exists,
         # iterate through them all and merge by date. For single-source or
         # back-compat (no `sources` configured but legacy channel_url is set),
@@ -168,7 +187,23 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
                 cancel_event=cancel_event,
                 progress_callback=progress_callback,
                 chronological=chronological,
+                stats=scrape_stats,
             )
+
+    # Intentional pre-fetch filters: skip already-seen (latest mode only)
+    # and mute recurring/low-value posts. Counts are surfaced to the user
+    # via the delivery card — never a silent drop.
+    skipped_seen_count = 0
+    muted_count = 0
+    posts, skipped_seen_count, muted_pre = filter_posts(
+        posts,
+        delivered_ids=set(get_setting("delivered_post_ids") or []),
+        skip_seen=(bool(get_setting("skip_seen")) and latest_mode
+                   and not include_seen),
+        mute_currency=bool(get_setting("mute_currency")),
+        muted_keywords=get_setting("muted_keywords") or [],
+    )
+    muted_count += muted_pre
 
     await _report(f"[1/4] Found {len(posts) + len(prefetched_articles)} posts.")
 
@@ -176,6 +211,9 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
         return PipelineResult(
             matched_title_preview=matched_title_preview,
             matched_post_id=matched_post_id,
+            skipped_seen_count=skipped_seen_count,
+            muted_count=muted_count,
+            partial=bool(scrape_stats.get("partial")),
         )
 
     # 2. Fetch full article content (Telegram-origin only; RSS already has body)
@@ -202,6 +240,16 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
 
     # Filter out articles with empty body
     articles = [a for a in articles if a.get("body", "").strip()]
+
+    # Post-fetch mute safety net: catches muted items whose Telegram
+    # caption/URL didn't trigger the pre-fetch filter, and RSS articles
+    # (which have no Telegram caption to match pre-fetch).
+    articles, muted_post = mute_articles(
+        articles,
+        mute_currency=bool(get_setting("mute_currency")),
+        muted_keywords=get_setting("muted_keywords") or [],
+    )
+    muted_count += muted_post
 
     # Smart filtering: quality, topic, duplicates
     articles = _apply_smart_filters(articles)
@@ -240,6 +288,9 @@ async def run_pipeline(count=None, start_offset=None, end_offset=None,
         articles=articles,
         matched_title_preview=matched_title_preview,
         matched_post_id=matched_post_id,
+        skipped_seen_count=skipped_seen_count,
+        muted_count=muted_count,
+        partial=bool(scrape_stats.get("partial")),
     )
 
     # 4. Generate audio (optional)

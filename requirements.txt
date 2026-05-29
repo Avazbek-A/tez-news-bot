@@ -1,13 +1,17 @@
-httpx
-selectolax
-rapidfuzz
-groq
-supertonic
-beautifulsoup4
-lxml
-python-telegram-bot[job-queue]>=20.0
-edge-tts
-python-dotenv
-sentry-sdk
-aiohttp
-feedparser
+# Pinned to the resolved versions in use, so a rebuild can't silently
+# pull a breaking upgrade. Bump deliberately, not by accident.
+httpx==0.28.1
+selectolax==0.4.8
+rapidfuzz==3.13.0
+groq==1.0.0
+supertonic==1.2.0
+beautifulsoup4==4.14.3
+lxml==6.0.2
+python-telegram-bot[job-queue]==22.5
+edge-tts==7.2.8
+python-dotenv==1.2.1
+aiohttp==3.13.3
+# Optional/lazy-imported (not in the local test env); floor-pinned to a
+# known-good major so behavior stays stable across rebuilds.
+sentry-sdk>=2.0,<3
+feedparser>=6.0,<7
