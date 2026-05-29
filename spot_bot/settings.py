@@ -5,13 +5,14 @@ so they survive bot restarts. Uses atomic writes to prevent corruption.
 """
 import json
 import os
-from pathlib import Path
 from spot_bot.config import DEFAULT_VOICE, CHANNEL_URL, TTS_RATE, DEFAULT_LANGUAGE
+from spot_bot.paths import data_path, ensure_parent
 
 import logging
 logger = logging.getLogger(__name__)
 
-SETTINGS_PATH = Path(__file__).parent / "user_settings.json"
+# Lives on DATA_DIR (a mounted volume in prod), else next to the code.
+SETTINGS_PATH = data_path("user_settings.json")
 
 _DEFAULTS = {
     "voice": DEFAULT_VOICE,
@@ -192,6 +193,7 @@ def save_settings(data):
     Writes to a temp file first, then renames to avoid corruption
     if the process is killed mid-write.
     """
+    ensure_parent(SETTINGS_PATH)
     tmp_path = SETTINGS_PATH.with_suffix(".tmp")
     try:
         with open(tmp_path, "w", encoding="utf-8") as f:

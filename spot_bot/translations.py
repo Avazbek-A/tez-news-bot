@@ -2995,6 +2995,14 @@ _STRINGS = {
         "tr": 'Başlıksız',
     },
 
+    'chatid_body': {
+        "en": "This chat's ID: {chat_id}\n\nTo receive operational alerts here, set the env var ALERT_CHAT_ID={chat_id} on the host and redeploy.",
+        "ru": "ID этого чата: {chat_id}\n\nЧтобы получать оповещения здесь, задайте переменную окружения ALERT_CHAT_ID={chat_id} и перезапустите бота.",
+        "uz": "Bu chat IDsi: {chat_id}\n\nBu yerda ogohlantirishlarni olish uchun hostda ALERT_CHAT_ID={chat_id} muhit o'zgaruvchisini o'rnating va qayta ishga tushiring.",
+        "de": "ID dieses Chats: {chat_id}\n\nUm Betriebs-Alerts hier zu erhalten, setze die Env-Variable ALERT_CHAT_ID={chat_id} und deploye neu.",
+        "tr": "Bu sohbetin ID'si: {chat_id}\n\nUyarıları burada almak için sunucuda ALERT_CHAT_ID={chat_id} ortam değişkenini ayarlayın ve yeniden dağıtın.",
+    },
+
     # ---- skip-seen / no-articles reasons ----
     'skipseen_status_on': {
         "en": "Skip already-seen is ON. A plain /scrape N won't re-send posts you've received. Use `/scrape N all` to include them once.",

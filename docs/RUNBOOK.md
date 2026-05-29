@@ -10,23 +10,32 @@ on call for a client deployment.
 | `BOT_TOKEN` | **yes** | Telegram bot token. |
 | `GROQ_API_KEY` | no | Enables /translate + /summarize. Without it those degrade gracefully. |
 | `GROQ_MODEL` | no | Override the default Llama model. |
-| `ALERT_CHAT_ID` | recommended | Telegram chat that receives 🚨 operational alerts (scraper breakage, high error rate). |
+| `ALERT_CHAT_ID` | recommended | Telegram chat that receives 🚨 operational alerts (scraper breakage, high error rate). Get the value by sending **/chatid** to the bot. |
+| `DATA_DIR` | **prod** | Directory for durable state — point at a mounted volume (see below). Defaults to the package dir, which is ephemeral on most hosts. |
 | `SENTRY_DSN` | recommended | Error tracking. |
 | `HEARTBEAT_URL` | recommended | Uptime ping (healthchecks.io / cronitor). |
 | `LOG_LEVEL` / `LOG_FORMAT` | no | `INFO` default; `LOG_FORMAT=json` for structured logs. |
 | `PIPER_VOICE_DIR` | no | Local Piper models, if used. |
 
+See `.env.example` for a copy-paste template.
+
 Secrets are redacted from logs automatically (see `logging_setup.RedactingFilter`).
 
 ## Persistent state — DO NOT lose this
 
-All durable state lives in two files **inside the app directory**:
-- `spot_bot/history.db` — delivery history, bookmarks, translation cache, metrics.
-- `spot_bot/user_settings.json` — all user preferences + auto-scrape config.
+All durable state lives in two files under **`DATA_DIR`**:
+- `history.db` — delivery history, bookmarks, translation cache, metrics.
+- `user_settings.json` — all user preferences + auto-scrape config.
 
-**These must be on a persistent volume.** On Railway/containers the
-default filesystem is ephemeral — a redeploy wipes them. Mount a volume
-and ensure both paths are on it.
+`DATA_DIR` defaults to the package directory, which is **ephemeral** on
+Railway/containers — a redeploy wipes it. To persist:
+
+1. Create/attach a **volume** and mount it (e.g. at `/data`).
+2. Set **`DATA_DIR=/data`**.
+3. Redeploy. Both files are now created on the volume and survive deploys.
+
+The app creates `DATA_DIR` if it doesn't exist. To migrate existing data,
+copy the two files into the volume before switching `DATA_DIR`.
 
 ### Backups
 - Back up `history.db` and `user_settings.json` on a schedule (e.g. daily
