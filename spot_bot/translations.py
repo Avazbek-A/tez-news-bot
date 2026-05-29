@@ -2399,9 +2399,10 @@ _STRINGS = {
             "📡 scrape — Scrape news from your sources\n"
             "🤖 auto — Schedule recurring deliveries\n"
             "🎙️ audio — Voice messages, engines, voices, speed\n"
-            "🔍 filter — Quality, topics, duplicates, ads\n"
-            "📚 library — Bookmarks, search, stats, resume\n"
-            "🌐 languages — UI, translation, sources, summaries"
+            "🔍 filter — Quality, topics, dupes, skip-seen, mute, ads\n"
+            "📚 library — Bookmarks, search, stats, metrics, resume\n"
+            "🌐 languages — UI, translation, sources, summaries\n"
+            "⚙️ system — Status, cancel, channel, chat ID"
         ),
         "ru": (
             "📚 Tez News Bot — Помощь\n\n"
@@ -2409,9 +2410,10 @@ _STRINGS = {
             "📡 scrape — Сбор новостей из источников\n"
             "🤖 auto — Расписание повторных сборов\n"
             "🎙️ audio — Голосовые, движки, голоса, скорость\n"
-            "🔍 filter — Качество, темы, дубли, реклама\n"
-            "📚 library — Закладки, поиск, статистика, возврат\n"
-            "🌐 languages — UI, перевод, источники, резюме"
+            "🔍 filter — Качество, темы, дубли, пропуск, заглушка, реклама\n"
+            "📚 library — Закладки, поиск, статистика, метрики, возврат\n"
+            "🌐 languages — UI, перевод, источники, резюме\n"
+            "⚙️ system — Статус, отмена, канал, chat ID"
         ),
         "uz": (
             "📚 Tez News Bot — Yordam\n\n"
@@ -2419,9 +2421,10 @@ _STRINGS = {
             "📡 scrape — Manbalardan yangiliklarni yig'ish\n"
             "🤖 auto — Takroriy yetkazib berishni rejalashtirish\n"
             "🎙️ audio — Ovozli xabarlar, ovozlar, tezlik\n"
-            "🔍 filter — Sifat, mavzu, takrorlar, reklama\n"
-            "📚 library — Xatcho'plar, qidiruv, statistika, davom etish\n"
-            "🌐 languages — UI, tarjima, manbalar, xulosalar"
+            "🔍 filter — Sifat, mavzu, takror, o'tkazish, ovozsiz, reklama\n"
+            "📚 library — Xatcho'plar, qidiruv, statistika, metrikalar, davom\n"
+            "🌐 languages — UI, tarjima, manbalar, xulosalar\n"
+            "⚙️ system — Holat, bekor qilish, kanal, chat ID"
         ),
         "de": (
             "📚 Tez News Bot — Hilfe\n\n"
@@ -2429,9 +2432,10 @@ _STRINGS = {
             "📡 scrape — Nachrichten von deinen Quellen abrufen\n"
             "🤖 auto — Wiederkehrende Lieferungen planen\n"
             "🎙️ audio — Sprachnachrichten, Engines, Stimmen, Tempo\n"
-            "🔍 filter — Qualität, Themen, Duplikate, Werbung\n"
-            "📚 library — Lesezeichen, Suche, Statistik, Fortsetzen\n"
-            "🌐 languages — UI, Übersetzung, Quellen, Zusammenfassungen"
+            "🔍 filter — Qualität, Themen, Duplikate, Skip, Stumm, Werbung\n"
+            "📚 library — Lesezeichen, Suche, Statistik, Metriken, Fortsetzen\n"
+            "🌐 languages — UI, Übersetzung, Quellen, Zusammenfassungen\n"
+            "⚙️ system — Status, Abbrechen, Kanal, Chat-ID"
         ),
         "tr": (
             "📚 Tez News Bot — Yardım\n\n"
@@ -2439,9 +2443,10 @@ _STRINGS = {
             "📡 scrape — Kaynaklardan haber çek\n"
             "🤖 auto — Yinelenen teslimatları zamanla\n"
             "🎙️ audio — Sesli mesajlar, motorlar, sesler, hız\n"
-            "🔍 filter — Kalite, konu, tekrar, reklam\n"
-            "📚 library — Yer imleri, arama, istatistik, devam\n"
-            "🌐 languages — UI, çeviri, kaynaklar, özetler"
+            "🔍 filter — Kalite, konu, tekrar, atlama, sessize alma, reklam\n"
+            "📚 library — Yer imleri, arama, istatistik, metrikler, devam\n"
+            "🌐 languages — UI, çeviri, kaynaklar, özetler\n"
+            "⚙️ system — Durum, iptal, kanal, sohbet ID"
         ),
     },
     'help_btn_scrape': {
@@ -2467,6 +2472,10 @@ _STRINGS = {
     'help_btn_languages': {
         "en": "🌐 languages", "ru": "🌐 languages", "uz": "🌐 languages",
         "de": "🌐 languages", "tr": "🌐 languages",
+    },
+    'help_btn_system': {
+        "en": "⚙️ system", "ru": "⚙️ system", "uz": "⚙️ system",
+        "de": "⚙️ system", "tr": "⚙️ system",
     },
 
     # /help_scrape
@@ -2634,12 +2643,23 @@ _STRINGS = {
             "Duplicates (multi-source)\n"
             "  /dedup 85 — collapse titles ≥85% similar\n"
             "  /dedup 100 — disable\n\n"
+            "Skip already-seen\n"
+            "  /skipseen on — don't re-deliver posts you've received (default)\n"
+            "  /skipseen off — include everything\n"
+            "  /scrape 50 all — bypass skip-seen for one run\n\n"
+            "Mute recurring/noisy posts\n"
+            "  /mute currency — hide the daily exchange-rate posts\n"
+            "  /mute tariff oil — mute by keyword(s)\n"
+            "  /mute — show current mutes\n"
+            "  /unmute currency | <keyword> | all\n\n"
             "Ads\n"
             "  /ads on — keep promotional content\n"
             "  /ads off — strip ad markers (default)\n\n"
             "Order\n"
             "  /order newest — newest first (default)\n"
-            "  /order oldest — oldest first"
+            "  /order oldest — oldest first\n\n"
+            "💡 Skipped/muted counts are always shown in the delivery card — "
+            "nothing is dropped silently."
         ),
     },
 
@@ -2647,8 +2667,9 @@ _STRINGS = {
     'help_library': {
         "en": (
             "📚 Library — Track, save, find\n\n"
-            "Stats\n"
-            "  /stats — reading totals (week + all-time)\n\n"
+            "Stats & health\n"
+            "  /stats — reading totals (week + all-time)\n"
+            "  /metrics — operational health: runs, error rate, avg time (7d)\n\n"
             "Find anything you've received\n"
             "  /find metro — search past articles\n"
             "  /unread — count new since last scrape\n\n"
@@ -2682,6 +2703,25 @@ _STRINGS = {
             "LLM summaries (Groq free tier)\n"
             "  /summarize on — 2-3 sentence summary on top of each article\n"
             "  /summarize off"
+        ),
+    },
+
+    # /help_system
+    'help_system': {
+        "en": (
+            "⚙️ System — Status, control, setup\n\n"
+            "Status & control\n"
+            "  /status — current settings + whether a job is running\n"
+            "  /cancel — stop the scrape running in this chat\n\n"
+            "Source channel\n"
+            "  /channel — show the current Telegram source\n"
+            "  /channel https://t.me/s/spotuz — change it\n"
+            "  (multiple sources: see 🌐 languages)\n\n"
+            "Operations\n"
+            "  /metrics — bot health for the last 7 days\n"
+            "  /chatid — this chat's ID (set ALERT_CHAT_ID to it so "
+            "breakage alerts arrive here)\n\n"
+            "💡 Full command reference: /help opens this menu anytime."
         ),
     },
 
@@ -2838,6 +2878,27 @@ _STRINGS = {
         "uz": "Joriy sozlamalar",
         "de": "Aktuelle Einstellungen",
         "tr": "Mevcut ayarlar",
+    },
+    'cmdmenu_mute': {
+        "en": "Mute currency/keyword posts",
+        "ru": "Заглушить курс/слова",
+        "uz": "Valyuta/so'zlarni ovozsiz qilish",
+        "de": "Währungs-/Stichwort-Posts stummschalten",
+        "tr": "Döviz/kelime gönderilerini sustur",
+    },
+    'cmdmenu_metrics': {
+        "en": "Bot health (7 days)",
+        "ru": "Здоровье бота (7 дней)",
+        "uz": "Bot holati (7 kun)",
+        "de": "Bot-Zustand (7 Tage)",
+        "tr": "Bot durumu (7 gün)",
+    },
+    'cmdmenu_cancel': {
+        "en": "Cancel a running scrape",
+        "ru": "Отменить текущий сбор",
+        "uz": "Ishlayotgan yig'ishni bekor qilish",
+        "de": "Laufenden Scrape abbrechen",
+        "tr": "Çalışan taramayı iptal et",
     },
     'cmdmenu_help': {
         "en": "Full guide",
