@@ -21,6 +21,8 @@ from spot_bot.commands.common import (
     _get_voice,
     _get_speed,
     _get_lang,
+    NEXT_BATCH_PREFIX,
+    decode_next_batch_flags,
 )
 from spot_bot.commands.runner import _run_job
 
@@ -437,3 +439,83 @@ async def cmd_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     job["cancel_event"].set()
     job["task"].cancel()
     await update.message.reply_text(t("cancelling", lang))
+
+
+# ---------------------------------------------------------------------------
+# "Next batch" inline button (sent at the bottom of every delivery)
+# ---------------------------------------------------------------------------
+
+async def _handle_next_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """One tap → scrape the next older ID window, same format as the run
+    that produced the button. callback_data: nb_<start>_<end>_<flags>."""
+    query = update.callback_query
+    chat_id = query.message.chat_id if query.message else update.effective_chat.id
+    lang = _get_lang()
+    data = query.data or ""
+    if not data.startswith(NEXT_BATCH_PREFIX):
+        return
+
+    try:
+        await query.answer()
+    except Exception:
+        pass
+
+    if chat_id in _running_jobs:
+        try:
+            await context.bot.send_message(chat_id, t("job_running", lang))
+        except Exception:
+            pass
+        return
+
+    payload = data[len(NEXT_BATCH_PREFIX):]
+    parts = payload.split("_")
+    if len(parts) < 2:
+        return
+    try:
+        start_id = int(parts[0])
+        end_id = int(parts[1])
+    except ValueError:
+        return
+    flags = parts[2] if len(parts) > 2 else "t"
+    opts = decode_next_batch_flags(flags)
+
+    # Disable the tapped button so it can't double-fire.
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+
+    voice = _get_voice()
+    rate = _get_speed()
+    chronological = (get_setting("chronological_order") == "oldest_first")
+    translate_to = get_setting("translate_to")
+
+    status_msg = await context.bot.send_message(
+        chat_id, t("starting", lang, desc=f"posts #{end_id}-#{start_id}")
+    )
+    cancel_event = asyncio.Event()
+    task = asyncio.create_task(
+        _run_job(
+            chat_id=chat_id,
+            bot=context.bot,
+            status_msg=status_msg,
+            cancel_event=cancel_event,
+            use_range=False,
+            use_post_ids=True,
+            use_from_title=False,
+            count=start_id - end_id + 1,
+            start_post_id=start_id,
+            end_post_id=end_id,
+            include_audio=opts["include_audio"],
+            include_images=opts["include_images"],
+            send_as_file=opts["send_as_file"],
+            combined_audio=opts["combined_audio"],
+            voice=voice,
+            rate=rate,
+            lang=lang,
+            chronological=chronological,
+            translate_to=translate_to,
+            include_seen=opts["include_seen"],
+        )
+    )
+    _running_jobs[chat_id] = {"task": task, "cancel_event": cancel_event}

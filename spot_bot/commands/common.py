@@ -8,6 +8,8 @@ pending scrape-menu configs) plus the small settings accessors.
 """
 import re
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 from spot_bot.config import VOICE_LANGUAGES
 from spot_bot.settings import get_setting
 from spot_bot.translations import t
@@ -58,3 +60,53 @@ def _build_voice_list(lang):
         label = t(f"lang_label_{lang_code}", lang)
         lines.append(f"{label}: {', '.join(names)}")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# One-tap "next batch" button
+#
+# The delivery card used to suggest "/scrape <start>-<end>" as text, but
+# Telegram only makes the bare "/scrape" tappable — the IDs had to be
+# copied by hand. Instead we attach an inline button whose callback_data
+# encodes the next older ID window plus a compact flags string, so one tap
+# repeats the scrape (same format) over the next batch.
+# ---------------------------------------------------------------------------
+
+NEXT_BATCH_PREFIX = "nb_"
+
+
+def encode_next_batch_flags(*, include_audio, combined_audio, include_images,
+                            send_as_file, include_seen) -> str:
+    """Pack the delivery options into a short string for callback_data."""
+    f = ""
+    if combined_audio:
+        f += "c"
+    elif include_audio:
+        f += "a"
+    if include_images:
+        f += "m"
+    if not send_as_file:
+        f += "i"
+    if include_seen:
+        f += "s"
+    return f or "t"  # 't' = plain text/file default
+
+
+def decode_next_batch_flags(flags: str) -> dict:
+    """Inverse of encode_next_batch_flags."""
+    combined = "c" in flags
+    return {
+        "include_audio": combined or "a" in flags,
+        "combined_audio": combined,
+        "include_images": "m" in flags,
+        "send_as_file": "i" not in flags,
+        "include_seen": "s" in flags,
+    }
+
+
+def next_batch_keyboard(start_id, end_id, n, flags, lang):
+    """Inline keyboard with a single 'Next N' button for the next batch."""
+    cb = f"{NEXT_BATCH_PREFIX}{start_id}_{end_id}_{flags}"
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(t("next_batch_btn", lang, n=n), callback_data=cb),
+    ]])
