@@ -338,10 +338,20 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         # One-tap "next batch" button as the LAST message, so the user
         # doesn't scroll up past the delivered articles to continue. It
         # repeats this scrape's format over the next older ID window.
+        #
+        # Window vs. label:
+        # - The ID *span* of this batch (newest-oldest) is what we step
+        #   back by — it's the best proxy for "fetch a similar amount,"
+        #   accounting for gaps and posts the filters dropped.
+        # - The button *label* shows how many articles were actually
+        #   delivered this run (not the raw span, which can be much larger
+        #   after muting/skip-seen). So you got 12 → the button says "12",
+        #   not "50".
         if oldest_id is not None and oldest_id > 1:
-            window = min(MAX_SCRAPE_COUNT, max(1, newest_id - oldest_id + 1))
+            id_span = min(MAX_SCRAPE_COUNT, max(1, newest_id - oldest_id + 1))
             nb_start = oldest_id - 1
-            nb_end = max(1, nb_start - window + 1)
+            nb_end = max(1, nb_start - id_span + 1)
+            label_n = len(result.articles) or id_span
             flags = encode_next_batch_flags(
                 include_audio=include_audio,
                 combined_audio=combined_audio,
@@ -352,9 +362,9 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
             try:
                 await bot.send_message(
                     chat_id,
-                    t("next_batch_prompt", lang, n=window),
+                    t("next_batch_prompt", lang, n=label_n),
                     reply_markup=next_batch_keyboard(
-                        nb_start, nb_end, window, flags, lang,
+                        nb_start, nb_end, label_n, flags, lang,
                     ),
                 )
             except Exception:
