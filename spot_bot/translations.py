@@ -2957,18 +2957,18 @@ _STRINGS = {
     },
     # Bottom-of-batch one-tap "next batch" button + its prompt message.
     'next_batch_prompt': {
-        "en": "Want more? Tap below for about {n} more older posts.",
-        "ru": "Нужно ещё? Нажмите ниже — ещё примерно {n} постов постарше.",
-        "uz": "Yana kerakmi? Quyidagini bosing — taxminan yana {n} ta eskiroq post.",
-        "de": "Mehr? Tippe unten für etwa {n} weitere ältere Posts.",
-        "tr": "Daha fazlası? Yaklaşık {n} eski gönderi için aşağıya dokunun.",
+        "en": "Want more? Tap below for the next batch (~{n} articles).",
+        "ru": "Нужно ещё? Нажмите ниже — следующая партия (~{n} статей).",
+        "uz": "Yana kerakmi? Quyidagini bosing — keyingi partiya (~{n} maqola).",
+        "de": "Mehr? Tippe unten für die nächste Charge (~{n} Artikel).",
+        "tr": "Daha fazlası? Sonraki parti için aşağıya dokunun (~{n} makale).",
     },
     'next_batch_btn': {
-        "en": "📥 Next ~{n} (older)",
-        "ru": "📥 Ещё ~{n} (старше)",
-        "uz": "📥 Yana ~{n} (eskiroq)",
-        "de": "📥 Nächste ~{n} (älter)",
-        "tr": "📥 Sonraki ~{n} (eski)",
+        "en": "📥 Next batch (~{n})",
+        "ru": "📥 Следующая партия (~{n})",
+        "uz": "📥 Keyingi partiya (~{n})",
+        "de": "📥 Nächste Charge (~{n})",
+        "tr": "📥 Sonraki parti (~{n})",
     },
     'delivery_line_articles': {
         "en": "  • {n} articles",
