@@ -1,0 +1,38 @@
+# systemd unit for running the Tez News Bot as a 24/7 service.
+#
+# Edit the three __PLACEHOLDERS__ below, then:
+#   sudo cp deploy/spot-bot.service /etc/systemd/system/spot-bot.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now spot-bot
+#
+# See docs/SELF_HOST.md for the full walkthrough.
+
+[Unit]
+Description=Tez News Bot (Telegram)
+Documentation=https://github.com/Avazbek-A/tez-news-bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# The Linux user the bot runs as (e.g. your login name). NOT root.
+User=__USER__
+# Absolute path to the cloned repo.
+WorkingDirectory=__APP_DIR__
+# Secrets + config live here (chmod 600). See deploy/spot-bot.env.example.
+EnvironmentFile=/etc/spot-bot.env
+# Run the bot from the project venv.
+ExecStart=__APP_DIR__/.venv/bin/python run_bot.py
+
+# Keep it alive: restart on crash, and on boot.
+Restart=always
+RestartSec=5
+# First run downloads the Supertonic model (~99 MB) — give startup room.
+TimeoutStartSec=180
+
+# Light hardening (safe defaults for a long-poll bot with no inbound ports).
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

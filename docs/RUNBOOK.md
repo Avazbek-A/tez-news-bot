@@ -3,6 +3,11 @@
 How to deploy, monitor, back up, and recover the bot. Aimed at whoever is
 on call for a client deployment.
 
+> **Self-hosting on a Linux laptop?** See **docs/SELF_HOST.md** for the
+> Ubuntu + systemd walkthrough (service file, data migration from Railway,
+> keeping a laptop awake). This runbook covers the day-to-day operations
+> that apply to any host.
+
 ## Environment variables
 
 | Var | Required | Purpose |
