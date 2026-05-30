@@ -337,20 +337,23 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
 
         # One-tap "next batch" button as the LAST message, so the user
         # doesn't scroll up past the delivered articles to continue. It
-        # repeats this scrape's format over the next older ID window.
+        # repeats this scrape's format over the next FORWARD (newer) ID
+        # window — i.e. the posts just after the ones delivered.
         #
         # Window vs. label:
         # - The ID *span* of this batch (newest-oldest) is what we step
-        #   back by — it's the best proxy for "fetch a similar amount,"
-        #   accounting for gaps and posts the filters dropped.
+        #   forward by — it's the best proxy for "fetch a similar amount,"
+        #   accounting for gaps and posts the filters dropped. The scraper
+        #   naturally clamps to whatever actually exists, so overshooting
+        #   past the current latest is harmless.
         # - The button *label* shows how many articles were actually
         #   delivered this run (not the raw span, which can be much larger
         #   after muting/skip-seen). So you got 12 → the button says "12",
         #   not "50".
-        if oldest_id is not None and oldest_id > 1:
+        if newest_id is not None:
             id_span = min(MAX_SCRAPE_COUNT, max(1, newest_id - oldest_id + 1))
-            nb_start = oldest_id - 1
-            nb_end = max(1, nb_start - id_span + 1)
+            nb_start = newest_id + id_span   # newest id of the next batch
+            nb_end = newest_id + 1           # just newer than what we got
             label_n = len(result.articles) or id_span
             flags = encode_next_batch_flags(
                 include_audio=include_audio,
