@@ -23,6 +23,7 @@ from spot_bot.commands.scrape import (
     cmd_scrape,
     cmd_cancel,
     _handle_scrape_menu_callback,
+    _handle_next_batch,
 )
 from spot_bot.commands.runner import _handle_anchor_confirmation
 from spot_bot.commands.settings_cmds import (
@@ -178,6 +179,10 @@ def create_app():
     app.add_handler(CallbackQueryHandler(
         _handle_scrape_menu_callback,
         pattern=r"^scrape_menu_",
+    ))
+    app.add_handler(CallbackQueryHandler(
+        _handle_next_batch,
+        pattern=r"^nb_",
     ))
     app.add_handler(CallbackQueryHandler(
         _handle_bookmark_callback,

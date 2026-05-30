@@ -14,7 +14,7 @@ import time
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from spot_bot.config import TTS_RATE
+from spot_bot.config import TTS_RATE, MAX_SCRAPE_COUNT
 from spot_bot.settings import get_setting, remember_delivered
 from spot_bot.translations import t
 from spot_bot.pipeline import run_pipeline
@@ -36,6 +36,8 @@ from spot_bot.commands.common import (
     _running_jobs,
     _pending_confirmations,
     CONFIRM_TIMEOUT,
+    encode_next_batch_flags,
+    next_batch_keyboard,
 )
 
 logger = logging.getLogger(__name__)
@@ -312,18 +314,13 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         if post_ids:
             newest_id = max(post_ids)
             oldest_id = min(post_ids)
-            range_size = newest_id - oldest_id
-            next_batch_str = ""
-            if range_size > 0:
-                next_batch_str = t("delivery_next_batch", lang,
-                                   start=newest_id,
-                                   end=newest_id + range_size)
             card = t("delivery_card", lang,
                      summary=summary_block,
                      oldest=oldest_id,
                      newest=newest_id,
-                     next_batch=next_batch_str)
+                     next_batch="")
         else:
+            newest_id = oldest_id = None
             card = t("delivery_card", lang,
                      summary=summary_block,
                      oldest="?",
@@ -335,6 +332,31 @@ async def _run_job(*, chat_id, bot, status_msg, cancel_event,
         except Exception:
             try:
                 await bot.send_message(chat_id, card)
+            except Exception:
+                pass
+
+        # One-tap "next batch" button as the LAST message, so the user
+        # doesn't scroll up past the delivered articles to continue. It
+        # repeats this scrape's format over the next older ID window.
+        if oldest_id is not None and oldest_id > 1:
+            window = min(MAX_SCRAPE_COUNT, max(1, newest_id - oldest_id + 1))
+            nb_start = oldest_id - 1
+            nb_end = max(1, nb_start - window + 1)
+            flags = encode_next_batch_flags(
+                include_audio=include_audio,
+                combined_audio=combined_audio,
+                include_images=include_images,
+                send_as_file=send_as_file,
+                include_seen=include_seen,
+            )
+            try:
+                await bot.send_message(
+                    chat_id,
+                    t("next_batch_prompt", lang, n=window),
+                    reply_markup=next_batch_keyboard(
+                        nb_start, nb_end, window, flags, lang,
+                    ),
+                )
             except Exception:
                 pass
 
