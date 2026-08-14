@@ -1,5 +1,7 @@
 # Tez News Bot
 
+[![CI](https://github.com/Avazbek-A/tez-news-bot/actions/workflows/ci.yml/badge.svg)](https://github.com/Avazbek-A/tez-news-bot/actions/workflows/ci.yml)
+
 Telegram bot that scrapes Uzbekistan business news from public Telegram channels, fetches full articles, cleans them, and delivers as text files or AI-generated audio with Microsoft Edge TTS.
 
 ## Commands
